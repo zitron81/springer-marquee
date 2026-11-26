@@ -278,6 +278,38 @@
       }
     },
     {
+      id: 'milestones-paybee',
+      name: 'Milestones + PayBee QR',
+      tagline: 'Chubby playful fonts + PayBee QR code',
+      previewColors: ['#ffffff', '#be123c', '#ffd60a', '#1e3a8a'],
+      config: {
+        bgStyle: 'solid',
+        bgColor: '#ffffff',
+        bgColor2: '#f8fafc',
+        bgGradDir: 'horizontal',
+        motif: 'top-bar',
+        motifColor: '#ffd60a',
+        fontId: 'baloo',
+        align: 'center',
+        textOutline: false,
+        autoFit: true,
+        lines: [
+          { text: 'Submit your', fontId: 'chewy', size: 16, color: '#1e3a8a', offsetX: -43, offsetY: 0, rotation: 0 },
+          { text: 'Milestones', fontId: 'baloo', size: 25, color: '#be123c', offsetX: -43, offsetY: 0, rotation: 0 },
+          { text: 'TODAY!', fontId: 'dynapuff', size: 22, color: '#1e3a8a', offsetX: -43, offsetY: 0, rotation: 0 }
+        ],
+        starterSticker: null,
+        starterQr: {
+          url: 'https://paybee.io/quickpay.html?handle=springerpta#optionList',
+          uppercase: false,
+          scaleMode: 'auto',
+          quietZoneMode: 'auto',
+          ecc: 'L',
+          snap: 'right'
+        }
+      }
+    },
+    {
       id: 'stinger-gold',
       name: 'Sunny Stinger Gold',
       tagline: 'Bright gold gradient + dark text',

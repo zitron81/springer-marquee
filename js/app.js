@@ -1208,20 +1208,28 @@
     state.autoFit = c.autoFit;
 
     state.lines = [];
+    var loadedFonts = {};
     for (var i = 0; i < c.lines.length; i++) {
       var presetLine = c.lines[i];
       if (!presetLine || !(presetLine.text || '').trim()) continue;
+      var lineFontId = presetLine.fontId || c.fontId;
       state.lines.push({
         text: presetLine.text,
-        fontId: presetLine.fontId || c.fontId,
+        fontId: lineFontId,
         size: presetLine.size,
         color: presetLine.color,
         offsetX: presetLine.offsetX || 0,
         offsetY: presetLine.offsetY || 0,
         rotation: presetLine.rotation || 0
       });
+      if (!loadedFonts[lineFontId]) {
+        loadedFonts[lineFontId] = true;
+        ensureFontLoaded(lineFontId);
+      }
     }
-    ensureFontLoaded(c.fontId);
+    if (!loadedFonts[c.fontId]) {
+      ensureFontLoaded(c.fontId);
+    }
 
     if (clearUploads) {
       state.bgImage = null;
