@@ -17,10 +17,20 @@
   <header class="site-header">
     <div class="header-inner">
       <div class="brand-group">
-        <div class="brand-mark" aria-hidden="true">SE</div>
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 64 64" width="30" height="30" role="img" aria-label="">
+            <ellipse cx="23" cy="21" rx="10" ry="13" transform="rotate(-24 23 21)" fill="#e0f2fe" stroke="#111827" stroke-width="2.5"/>
+            <ellipse cx="41" cy="21" rx="10" ry="13" transform="rotate(24 41 21)" fill="#e0f2fe" stroke="#111827" stroke-width="2.5"/>
+            <polygon points="5,40 16,35 16,45" fill="#111827"/>
+            <ellipse cx="34" cy="39" rx="20" ry="15" fill="#ffd60a" stroke="#111827" stroke-width="3"/>
+            <path d="M23 27 C20 34 20 44 23 51" fill="none" stroke="#111827" stroke-width="4.5" stroke-linecap="round"/>
+            <path d="M33 25 C31 34 31 44 33 53" fill="none" stroke="#111827" stroke-width="4.5" stroke-linecap="round"/>
+            <circle cx="45" cy="36" r="2.5" fill="#111827"/>
+          </svg>
+        </div>
         <div>
-          <h1>Springer Marquee Maker</h1>
-          <p class="subtitle">Design &amp; preview slides before submitting to the school sign</p>
+          <h1>Springer Stingers Marquee Maker</h1>
+          <p class="subtitle">Design or test slides before submitting to the school LED sign</p>
         </div>
       </div>
       <div class="header-actions">
@@ -33,219 +43,333 @@
   </header>
 
   <main class="workspace">
-    <!-- LEFT / TOP: LIVE MARQUEE PREVIEW & EXPORT -->
-    <section class="preview-column" aria-label="Live marquee preview and export">
-      <div class="card preview-card">
-        <div class="preview-toolbar">
-          <div class="segmented" role="group" aria-label="Preview display mode">
-            <button type="button" class="seg-btn is-active" data-preview-mode="led" aria-pressed="true">
-              LED Matrix View
-            </button>
-            <button type="button" class="seg-btn" data-preview-mode="pixel" aria-pressed="false">
-              Crisp Pixel View
-            </button>
-          </div>
-          <button type="button" id="reset-btn" class="btn btn-ghost btn-sm" title="Reset to starter birthday template">
-            Reset
+    <!-- TOP: OBVIOUS TWO-MODE SWITCHER -->
+    <section class="mode-switcher" aria-label="Choose workflow mode">
+      <button type="button" id="mode-create-btn" class="mode-btn is-active" data-app-mode="create" aria-pressed="true">
+        <span class="mode-badge">CREATE</span>
+        <span class="mode-copy">
+          <strong>Create a Slide</strong>
+          <span>Build a new slide with presets, text, backgrounds &amp; stickers</span>
+        </span>
+      </button>
+      <button type="button" id="mode-test-btn" class="mode-btn" data-app-mode="test" aria-pressed="false">
+        <span class="mode-badge">TEST</span>
+        <span class="mode-copy">
+          <strong>Test Existing Image</strong>
+          <span>Preview an image you already made on the 256×96 LED sign</span>
+        </span>
+      </button>
+    </section>
+
+    <!-- HERO PREVIEW CARD -->
+    <section class="card preview-card" aria-label="Live marquee preview and export">
+      <div class="preview-toolbar">
+        <div class="segmented" role="group" aria-label="Preview display mode">
+          <button type="button" class="seg-btn is-active" data-preview-mode="led" aria-pressed="true">
+            LED Matrix View
+          </button>
+          <button type="button" class="seg-btn" data-preview-mode="pixel" aria-pressed="false">
+            Crisp Pixel View
           </button>
         </div>
+        <span id="canvas-interaction-hint" class="preview-hint">
+          Click any text or sticker to drag or rotate
+        </span>
+        <button type="button" id="reset-btn" class="btn btn-ghost btn-sm" title="Reset to starter Springer Stingers slide">
+          Reset Slide
+        </button>
+      </div>
 
-        <div class="marquee-bezel">
-          <div class="marquee-screen-wrap">
-            <canvas
-              id="display-canvas"
-              width="1024"
-              height="384"
-              tabindex="0"
-              aria-label="Interactive 256 by 96 marquee preview. Drag stickers or background photos here, or use arrow keys to nudge selected sticker."
-            ></canvas>
-          </div>
-          <div class="bezel-footer">
-            <span>SPRINGER ELEMENTARY LED SIGN</span>
-            <span id="canvas-interaction-hint">Tip: Drag stickers directly on the sign</span>
-          </div>
+      <div id="marquee-bezel" class="marquee-bezel">
+        <div class="marquee-screen-wrap">
+          <canvas
+            id="display-canvas"
+            width="1024"
+            height="384"
+            tabindex="0"
+            aria-label="Interactive 256 by 96 marquee preview. Click any text line or sticker to drag or rotate it, or use arrow keys to nudge."
+          ></canvas>
+        </div>
+        <div class="bezel-footer">
+          <span>SPRINGER ELEMENTARY STINGERS LED SIGN</span>
+          <span>256 × 96 PIXELS</span>
+        </div>
+      </div>
+
+      <!-- CONTEXTUAL SELECTION BAR (Create Mode when text or sticker is selected) -->
+      <div id="quick-selection-bar" class="quick-selection-bar" hidden>
+        <div class="quick-sel-title">
+          <span class="quick-sel-dot" aria-hidden="true"></span>
+          <strong id="quick-sel-label">Selected Item</strong>
         </div>
 
-        <div class="actual-size-row">
-          <div class="actual-size-label">
-            <strong>Actual 1:1 Pixel Size (256 × 96)</strong>
-            <span>Every pixel below is one physical LED cluster on the sign.</span>
-          </div>
+        <div class="quick-sel-controls">
+          <label id="quick-size-wrap" class="quick-slider-item" hidden>
+            <span>Size: <strong id="quick-size-val">42px</strong></span>
+            <input type="range" id="quick-size" min="12" max="260" step="1" value="42">
+          </label>
+
+          <label class="quick-slider-item">
+            <span>Rotate: <strong id="quick-rotate-val">0°</strong></span>
+            <input type="range" id="quick-rotate" min="-180" max="180" step="1" value="0">
+          </label>
+
+          <button type="button" id="quick-rotate-reset" class="btn btn-outline btn-sm">0°</button>
+          <button type="button" id="quick-center-btn" class="btn btn-outline btn-sm">Center</button>
+
+          <span id="quick-layer-wrap" class="quick-layer-actions" hidden>
+            <button type="button" id="quick-front-btn" class="btn btn-outline btn-sm">Bring Front</button>
+            <button type="button" id="quick-back-btn" class="btn btn-outline btn-sm">Send Back</button>
+            <button type="button" id="quick-delete-btn" class="btn btn-danger btn-sm">Delete</button>
+          </span>
+
+          <button type="button" id="quick-deselect-btn" class="btn btn-ghost btn-sm">Done</button>
+        </div>
+      </div>
+
+      <!-- COMPACT UTILITY STRIP: 1:1 SIZE + READABILITY CHECKS + EXPORT -->
+      <div class="preview-utility-bar">
+        <div class="actual-size-box">
           <div class="actual-canvas-frame">
             <canvas id="actual-canvas" width="256" height="96" aria-label="Actual 1 to 1 size 256 by 96 pixel preview"></canvas>
           </div>
+          <div class="actual-size-label">
+            <strong>Actual 1:1 Size (256 × 96)</strong>
+            <span>Each pixel is one physical LED cluster.</span>
+          </div>
         </div>
-      </div>
 
-      <!-- READABILITY CHECKS -->
-      <div class="card checks-card">
-        <div class="section-head">
-          <h2>Readability Check</h2>
-          <span class="badge-note">Live street-visibility guardrails</span>
+        <div class="checks-box" aria-label="Readability checks">
+          <ul id="checks-list" class="checks-list" aria-live="polite"></ul>
         </div>
-        <ul id="checks-list" class="checks-list" aria-live="polite"></ul>
-      </div>
 
-      <!-- EXPORT BAR -->
-      <div class="card export-card">
-        <div class="export-main">
+        <div class="export-box">
           <button type="button" id="download-btn" class="btn btn-primary btn-lg">
-            <span>Download 256×96 JPG</span>
+            <span id="download-btn-label">Download 256×96 JPG</span>
             <span id="file-size-badge" class="file-size-pill">~18 KB</span>
           </button>
           <p class="filename-row">
-            File: <code id="filename-preview">happy-birthday-maya-256x96.jpg</code>
+            File: <code id="filename-preview">go-stingers-256x96.jpg</code>
           </p>
+          <details class="export-options">
+            <summary>JPG Quality Options</summary>
+            <div class="control-row">
+              <label for="jpg-quality">
+                Image Quality: <strong id="jpg-quality-val">95%</strong>
+              </label>
+              <input type="range" id="jpg-quality" min="85" max="100" step="1" value="95">
+            </div>
+          </details>
         </div>
-
-        <details class="export-options">
-          <summary>JPG Quality Options</summary>
-          <div class="control-row">
-            <label for="jpg-quality">
-              Image Quality: <strong id="jpg-quality-val">95%</strong>
-            </label>
-            <input type="range" id="jpg-quality" min="85" max="100" step="1" value="95">
-          </div>
-        </details>
       </div>
     </section>
 
-    <!-- RIGHT / BOTTOM: EDITOR CONTROLS -->
-    <section class="controls-column" aria-label="Slide design controls">
-      <div class="card controls-card">
-        <div class="tabs-bar" role="tablist" aria-label="Design sections">
-          <button type="button" role="tab" id="tab-presets" aria-controls="panel-presets" aria-selected="true" class="tab-btn is-active">
-            Presets
-          </button>
-          <button type="button" role="tab" id="tab-text" aria-controls="panel-text" aria-selected="false" class="tab-btn">
-            Text
-          </button>
-          <button type="button" role="tab" id="tab-background" aria-controls="panel-background" aria-selected="false" class="tab-btn">
-            Background
-          </button>
-          <button type="button" role="tab" id="tab-stickers" aria-controls="panel-stickers" aria-selected="false" class="tab-btn">
-            Stickers &amp; PNGs
-          </button>
+    <!-- TEST EXISTING IMAGE MODE PANEL -->
+    <section id="test-mode-panel" class="card test-mode-panel" aria-label="Test existing image" hidden>
+      <div class="panel-intro">
+        <div>
+          <h2>Test an Existing Image</h2>
+          <p>Upload a slide or flyer you already made (Canva, PowerPoint, Photoshop, etc.) to see how it actually reads at 256 × 96 LED resolution, and export a ready-to-submit JPG.</p>
         </div>
+      </div>
 
-        <!-- TAB 1: PRESETS -->
-        <div id="panel-presets" role="tabpanel" aria-labelledby="tab-presets" class="tab-panel is-active">
-          <div class="panel-intro">
-            <p>Start with a high-contrast layout built for passing cars, or test an image you already made.</p>
-            <button type="button" id="shortcut-check-image" class="btn btn-secondary btn-sm">
-              Check an Existing Image
-            </button>
+      <div id="test-dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload existing image by clicking or dropping a file">
+        <input type="file" id="test-file-input" accept="image/*" class="sr-only">
+        <strong>Choose or Drop Your Finished Image</strong>
+        <span>PNG, JPG, WebP, or GIF &bull; Or drop directly onto the sign above</span>
+      </div>
+
+      <div id="test-image-controls" class="bg-image-controls" hidden>
+        <div class="test-meta-row">
+          <span id="test-image-meta" class="meta-pill">image.png</span>
+          <div class="test-meta-actions">
+            <button type="button" id="test-center-btn" class="btn btn-outline btn-sm">Center &amp; Reset Zoom</button>
+            <button type="button" id="test-remove-btn" class="btn btn-danger btn-sm">Remove Image</button>
           </div>
-          <div id="presets-grid" class="presets-grid"></div>
         </div>
 
-        <!-- TAB 2: TEXT -->
-        <div id="panel-text" role="tabpanel" aria-labelledby="tab-text" class="tab-panel" hidden>
+        <div class="control-grid three-col">
+          <div class="field">
+            <label for="test-fit">Resize Mode</label>
+            <select id="test-fit">
+              <option value="contain">Fit Whole Image Inside</option>
+              <option value="cover">Fill &amp; Crop (No Black Bars)</option>
+              <option value="stretch">Stretch to 256×96</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <label for="test-zoom">Zoom: <strong id="test-zoom-val">100%</strong></label>
+            <input type="range" id="test-zoom" min="0.5" max="3" step="0.05" value="1">
+          </div>
           <div class="control-grid two-col">
-            <div class="field">
-              <label for="font-select">Bold LED Font</label>
-              <select id="font-select"></select>
+            <div class="control-row">
+              <label for="test-offset-x">Pan X: <strong id="test-offset-x-val">0 px</strong></label>
+              <input type="range" id="test-offset-x" min="-160" max="160" step="1" value="0">
             </div>
-            <div class="field">
-              <span class="field-label">Alignment</span>
-              <div class="segmented full-width" role="group" aria-label="Text horizontal alignment">
-                <button type="button" class="seg-btn" data-align="left" aria-pressed="false">Left</button>
-                <button type="button" class="seg-btn is-active" data-align="center" aria-pressed="true">Center</button>
-                <button type="button" class="seg-btn" data-align="right" aria-pressed="false">Right</button>
-              </div>
+            <div class="control-row">
+              <label for="test-offset-y">Pan Y: <strong id="test-offset-y-val">0 px</strong></label>
+              <input type="range" id="test-offset-y" min="-100" max="100" step="1" value="0">
             </div>
           </div>
+        </div>
+      </div>
+    </section>
 
-          <div class="toggle-row">
+    <!-- CREATE MODE CONTROLS -->
+    <section id="create-mode-panel" class="card controls-card" aria-label="Slide design controls">
+      <div class="tabs-bar" role="tablist" aria-label="Design sections">
+        <button type="button" role="tab" id="tab-presets" aria-controls="panel-presets" aria-selected="true" class="tab-btn is-active">
+          1. Presets
+        </button>
+        <button type="button" role="tab" id="tab-text" aria-controls="panel-text" aria-selected="false" class="tab-btn">
+          2. Text
+        </button>
+        <button type="button" role="tab" id="tab-background" aria-controls="panel-background" aria-selected="false" class="tab-btn">
+          3. Background
+        </button>
+        <button type="button" role="tab" id="tab-stickers" aria-controls="panel-stickers" aria-selected="false" class="tab-btn">
+          4. Stickers &amp; Logos
+        </button>
+      </div>
+
+      <!-- TAB 1: PRESETS -->
+      <div id="panel-presets" role="tabpanel" aria-labelledby="tab-presets" class="tab-panel is-active">
+        <p class="helper-text">
+          Pick a bright or dark template built for passing cars, then customize text, colors, and Stinger stickers.
+        </p>
+        <div id="presets-grid" class="presets-grid"></div>
+      </div>
+
+      <!-- TAB 2: TEXT -->
+      <div id="panel-text" role="tabpanel" aria-labelledby="tab-text" class="tab-panel" hidden>
+        <div class="text-toolbar-row">
+          <div class="field">
+            <label for="font-select">Bold LED Font</label>
+            <select id="font-select"></select>
+          </div>
+          <div class="field">
+            <span class="field-label">Alignment</span>
+            <div class="segmented full-width" role="group" aria-label="Text horizontal alignment">
+              <button type="button" class="seg-btn" data-align="left" aria-pressed="false">Left</button>
+              <button type="button" class="seg-btn is-active" data-align="center" aria-pressed="true">Center</button>
+              <button type="button" class="seg-btn" data-align="right" aria-pressed="false">Right</button>
+            </div>
+          </div>
+          <div class="toggle-row inline-toggles">
             <label class="checkbox-pill">
               <input type="checkbox" id="auto-fit" checked>
-              <span>Auto-fit long lines to sign width</span>
+              <span>Auto-fit width</span>
             </label>
             <label class="checkbox-pill">
-              <input type="checkbox" id="text-outline" checked>
-              <span>Dark outline behind letters</span>
+              <input type="checkbox" id="text-outline">
+              <span>Contrast outline</span>
             </label>
-          </div>
-
-          <div class="control-row compact-slider">
-            <label for="text-offset-y">Vertical Text Shift: <strong id="text-offset-y-val">0 px</strong></label>
-            <input type="range" id="text-offset-y" min="-24" max="24" step="1" value="0">
-          </div>
-
-          <div class="lines-stack">
-            <!-- Line 1 -->
-            <fieldset class="line-card">
-              <legend>Line 1 (Top)</legend>
-              <div class="line-input-row">
-                <input type="text" id="line-text-0" data-line-text="0" maxlength="48" placeholder="e.g. HAPPY BIRTHDAY" aria-label="Line 1 text">
-                <button type="button" class="btn btn-ghost btn-sm" data-line-clear="0" aria-label="Clear line 1">Clear</button>
-              </div>
-              <div class="line-meta-row">
-                <div class="slider-group">
-                  <label for="line-size-0">
-                    Size: <strong id="line-size-val-0">17px</strong>
-                    <span class="safe-hint">(14px+ recommended)</span>
-                  </label>
-                  <input type="range" id="line-size-0" data-line-size="0" min="10" max="48" step="1" value="17">
-                </div>
-                <div class="color-group">
-                  <label for="line-color-0" class="sr-only">Line 1 color</label>
-                  <input type="color" id="line-color-0" data-line-color="0" value="#ffd60a" title="Custom color">
-                  <div class="swatch-strip" data-line-swatches="0" aria-label="Line 1 quick colors"></div>
-                </div>
-              </div>
-            </fieldset>
-
-            <!-- Line 2 -->
-            <fieldset class="line-card">
-              <legend>Line 2 (Main Headline)</legend>
-              <div class="line-input-row">
-                <input type="text" id="line-text-1" data-line-text="1" maxlength="48" placeholder="e.g. MAYA!" aria-label="Line 2 text">
-                <button type="button" class="btn btn-ghost btn-sm" data-line-clear="1" aria-label="Clear line 2">Clear</button>
-              </div>
-              <div class="line-meta-row">
-                <div class="slider-group">
-                  <label for="line-size-1">
-                    Size: <strong id="line-size-val-1">30px</strong>
-                    <span class="safe-hint">(14px+ recommended)</span>
-                  </label>
-                  <input type="range" id="line-size-1" data-line-size="1" min="10" max="48" step="1" value="30">
-                </div>
-                <div class="color-group">
-                  <label for="line-color-1" class="sr-only">Line 2 color</label>
-                  <input type="color" id="line-color-1" data-line-color="1" value="#ffffff" title="Custom color">
-                  <div class="swatch-strip" data-line-swatches="1" aria-label="Line 2 quick colors"></div>
-                </div>
-              </div>
-            </fieldset>
-
-            <!-- Line 3 -->
-            <fieldset class="line-card">
-              <legend>Line 3 (Bottom Note — Optional)</legend>
-              <div class="line-input-row">
-                <input type="text" id="line-text-2" data-line-text="2" maxlength="48" placeholder="Optional short line" aria-label="Line 3 text">
-                <button type="button" class="btn btn-ghost btn-sm" data-line-clear="2" aria-label="Clear line 3">Clear</button>
-              </div>
-              <div class="line-meta-row">
-                <div class="slider-group">
-                  <label for="line-size-2">
-                    Size: <strong id="line-size-val-2">14px</strong>
-                    <span class="safe-hint">(14px+ recommended)</span>
-                  </label>
-                  <input type="range" id="line-size-2" data-line-size="2" min="10" max="48" step="1" value="14">
-                </div>
-                <div class="color-group">
-                  <label for="line-color-2" class="sr-only">Line 3 color</label>
-                  <input type="color" id="line-color-2" data-line-color="2" value="#ff4d8d" title="Custom color">
-                  <div class="swatch-strip" data-line-swatches="2" aria-label="Line 3 quick colors"></div>
-                </div>
-              </div>
-            </fieldset>
+            <button type="button" id="reset-text-transforms-btn" class="btn btn-outline btn-sm">
+              Reset All Positions &amp; Angles
+            </button>
           </div>
         </div>
 
-        <!-- TAB 3: BACKGROUND -->
-        <div id="panel-background" role="tabpanel" aria-labelledby="tab-background" class="tab-panel" hidden>
+        <p class="helper-text">
+          Tip: Click any line directly on the sign preview above to drag-move it, or drag its gold top handle to rotate it.
+        </p>
+
+        <div class="lines-stack">
+          <!-- Line 1 -->
+          <fieldset id="line-card-0" class="line-card">
+            <legend>Line 1 (Top)</legend>
+            <div class="line-input-row">
+              <input type="text" id="line-text-0" data-line-text="0" maxlength="48" placeholder="e.g. SPRINGER ELEMENTARY" aria-label="Line 1 text">
+              <button type="button" class="btn btn-ghost btn-sm" data-line-clear="0" aria-label="Clear line 1">Clear</button>
+            </div>
+            <div class="line-meta-row">
+              <div class="slider-group">
+                <label for="line-size-0">
+                  Size: <strong id="line-size-val-0">15px</strong>
+                  <span class="safe-hint">(14px+)</span>
+                </label>
+                <input type="range" id="line-size-0" data-line-size="0" min="10" max="48" step="1" value="15">
+              </div>
+              <div class="slider-group rotate-group">
+                <label for="line-rotate-0">
+                  Rotate: <strong id="line-rotate-val-0">0°</strong>
+                </label>
+                <input type="range" id="line-rotate-0" data-line-rotate="0" min="-180" max="180" step="1" value="0">
+              </div>
+              <button type="button" class="btn btn-outline btn-sm" data-line-reset-transform="0">Reset Pos/Tilt</button>
+            </div>
+            <div class="color-group">
+              <label for="line-color-0" class="sr-only">Line 1 color</label>
+              <input type="color" id="line-color-0" data-line-color="0" value="#ffd60a" title="Custom color">
+              <div class="swatch-strip" data-line-swatches="0" aria-label="Line 1 quick colors"></div>
+            </div>
+          </fieldset>
+
+          <!-- Line 2 -->
+          <fieldset id="line-card-1" class="line-card">
+            <legend>Line 2 (Main Headline)</legend>
+            <div class="line-input-row">
+              <input type="text" id="line-text-1" data-line-text="1" maxlength="48" placeholder="e.g. GO STINGERS!" aria-label="Line 2 text">
+              <button type="button" class="btn btn-ghost btn-sm" data-line-clear="1" aria-label="Clear line 2">Clear</button>
+            </div>
+            <div class="line-meta-row">
+              <div class="slider-group">
+                <label for="line-size-1">
+                  Size: <strong id="line-size-val-1">28px</strong>
+                  <span class="safe-hint">(14px+)</span>
+                </label>
+                <input type="range" id="line-size-1" data-line-size="1" min="10" max="48" step="1" value="28">
+              </div>
+              <div class="slider-group rotate-group">
+                <label for="line-rotate-1">
+                  Rotate: <strong id="line-rotate-val-1">0°</strong>
+                </label>
+                <input type="range" id="line-rotate-1" data-line-rotate="1" min="-180" max="180" step="1" value="0">
+              </div>
+              <button type="button" class="btn btn-outline btn-sm" data-line-reset-transform="1">Reset Pos/Tilt</button>
+            </div>
+            <div class="color-group">
+              <label for="line-color-1" class="sr-only">Line 2 color</label>
+              <input type="color" id="line-color-1" data-line-color="1" value="#ffffff" title="Custom color">
+              <div class="swatch-strip" data-line-swatches="1" aria-label="Line 2 quick colors"></div>
+            </div>
+          </fieldset>
+
+          <!-- Line 3 -->
+          <fieldset id="line-card-2" class="line-card">
+            <legend>Line 3 (Bottom Note — Optional)</legend>
+            <div class="line-input-row">
+              <input type="text" id="line-text-2" data-line-text="2" maxlength="48" placeholder="Optional short line" aria-label="Line 3 text">
+              <button type="button" class="btn btn-ghost btn-sm" data-line-clear="2" aria-label="Clear line 3">Clear</button>
+            </div>
+            <div class="line-meta-row">
+              <div class="slider-group">
+                <label for="line-size-2">
+                  Size: <strong id="line-size-val-2">14px</strong>
+                  <span class="safe-hint">(14px+)</span>
+                </label>
+                <input type="range" id="line-size-2" data-line-size="2" min="10" max="48" step="1" value="14">
+              </div>
+              <div class="slider-group rotate-group">
+                <label for="line-rotate-2">
+                  Rotate: <strong id="line-rotate-val-2">0°</strong>
+                </label>
+                <input type="range" id="line-rotate-2" data-line-rotate="2" min="-180" max="180" step="1" value="0">
+              </div>
+              <button type="button" class="btn btn-outline btn-sm" data-line-reset-transform="2">Reset Pos/Tilt</button>
+            </div>
+            <div class="color-group">
+              <label for="line-color-2" class="sr-only">Line 3 color</label>
+              <input type="color" id="line-color-2" data-line-color="2" value="#ffd60a" title="Custom color">
+              <div class="swatch-strip" data-line-swatches="2" aria-label="Line 3 quick colors"></div>
+            </div>
+          </fieldset>
+        </div>
+      </div>
+
+      <!-- TAB 3: BACKGROUND -->
+      <div id="panel-background" role="tabpanel" aria-labelledby="tab-background" class="tab-panel" hidden>
+        <div class="panel-two-col">
           <div class="sub-section">
             <h3>Background Colors &amp; Accent</h3>
             <div class="control-grid two-col">
@@ -254,6 +378,14 @@
                 <select id="bg-style">
                   <option value="solid">Solid Color</option>
                   <option value="gradient">Two-Color Gradient</option>
+                </select>
+              </div>
+              <div class="field" id="bg-grad-dir-wrap" hidden>
+                <label for="bg-grad-dir">Gradient Direction</label>
+                <select id="bg-grad-dir">
+                  <option value="horizontal">Left &rarr; Right</option>
+                  <option value="vertical">Top &rarr; Bottom</option>
+                  <option value="diagonal">Diagonal</option>
                 </select>
               </div>
               <div class="field">
@@ -271,13 +403,16 @@
               <div class="field">
                 <label for="bg-color">Primary Color</label>
                 <div class="color-input-combo">
-                  <input type="color" id="bg-color" value="#120d31">
+                  <input type="color" id="bg-color" value="#15803d">
                   <div id="bg-swatches" class="swatch-strip" aria-label="Quick background colors"></div>
                 </div>
               </div>
               <div class="field" id="bg-color2-wrap" hidden>
                 <label for="bg-color2">Gradient Second Color</label>
-                <input type="color" id="bg-color2" value="#25144e">
+                <div class="color-input-combo">
+                  <input type="color" id="bg-color2" value="#0b4f26">
+                  <div id="bg-swatches-2" class="swatch-strip" aria-label="Quick gradient second colors"></div>
+                </div>
               </div>
               <div class="field" id="motif-color-wrap" hidden>
                 <label for="motif-color">Accent Color</label>
@@ -287,13 +422,13 @@
           </div>
 
           <div class="sub-section">
-            <h3>Upload Full Graphic or Photo Background</h3>
+            <h3>Optional Photo Behind Text</h3>
             <p class="helper-text">
-              Upload an image to resize it to 256×96, or use it behind text. Everything stays on your device.
+              Add a photo or graphic behind your slide text. (To preview a finished image with no text, use <strong>Test Existing Image</strong> above.)
             </p>
             <div id="bg-dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload background image by clicking or dropping a file">
               <input type="file" id="bg-file-input" accept="image/*" class="sr-only">
-              <strong>Choose or Drop Background Image</strong>
+              <strong>Choose or Drop Background Photo</strong>
               <span>PNG, JPG, WebP, or GIF</span>
             </div>
 
@@ -334,21 +469,21 @@
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- TAB 4: STICKERS & PNG OVERLAYS -->
-        <div id="panel-stickers" role="tabpanel" aria-labelledby="tab-stickers" class="tab-panel" hidden>
+      <!-- TAB 4: STICKERS & LOGOS -->
+      <div id="panel-stickers" role="tabpanel" aria-labelledby="tab-stickers" class="tab-panel" hidden>
+        <div class="panel-two-col">
           <div class="sub-section">
-            <h3>Upload Transparent PNG / Logo</h3>
+            <h3>Add Built-in Stickers</h3>
+            <div id="builtin-stickers-grid" class="stickers-grid"></div>
+
+            <h3 class="sub-heading-spaced">Upload Transparent PNG / Logo</h3>
             <div id="overlay-dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload PNG sticker or logo by clicking or dropping a file">
               <input type="file" id="overlay-file-input" accept="image/png,image/*" class="sr-only">
               <strong>Choose or Drop a PNG Sticker / Logo</strong>
-              <span>Drag on the preview sign or use sliders below to place it</span>
+              <span>Drag or rotate directly on the preview sign</span>
             </div>
-          </div>
-
-          <div class="sub-section">
-            <h3>Quick Built-in Stickers</h3>
-            <div id="builtin-stickers-grid" class="stickers-grid"></div>
           </div>
 
           <div class="sub-section">
@@ -358,9 +493,15 @@
             </div>
 
             <div id="selected-overlay-controls" class="selected-overlay-controls" hidden>
-              <div class="control-row">
-                <label for="ov-size">Sticker Size: <strong id="ov-size-val">42 px</strong></label>
-                <input type="range" id="ov-size" min="12" max="96" step="1" value="42">
+              <div class="control-grid two-col">
+                <div class="control-row">
+                  <label for="ov-size">Sticker Size: <strong id="ov-size-val">42 px</strong></label>
+                  <input type="range" id="ov-size" min="12" max="260" step="1" value="42">
+                </div>
+                <div class="control-row">
+                  <label for="ov-rotate">Rotate: <strong id="ov-rotate-val">0°</strong></label>
+                  <input type="range" id="ov-rotate" min="-180" max="180" step="1" value="0">
+                </div>
               </div>
               <div class="control-grid two-col">
                 <div class="control-row">
@@ -382,6 +523,7 @@
                 <div class="overlay-actions">
                   <button type="button" id="ov-center-btn" class="btn btn-outline btn-sm">Center</button>
                   <button type="button" id="ov-front-btn" class="btn btn-outline btn-sm">Bring Front</button>
+                  <button type="button" id="ov-back-btn" class="btn btn-outline btn-sm">Send Back</button>
                   <button type="button" id="ov-delete-btn" class="btn btn-danger btn-sm">Delete</button>
                 </div>
               </div>
@@ -405,7 +547,7 @@
       <ul>
         <li><strong>Small text turns into illegible blocks:</strong> Letters shorter than 12–14 pixels tall only have a handful of LED lights to form curves like "e", "a", and "s".</li>
         <li><strong>QR codes don't scan outdoors:</strong> A QR code needs dozens of tiny crisp squares plus white borders. On 96 vertical LEDs with outdoor sunlight glare, phones cannot focus on it from a car.</li>
-        <li><strong>Keep it under 10 words:</strong> Families drive past in 2–3 seconds. Big bold text on a dark background reads cleanly from the street.</li>
+        <li><strong>Keep it under 10 words:</strong> Families drive past in 2–3 seconds. Big bold text with high contrast reads cleanly from the street.</li>
       </ul>
       <p class="dialog-privacy">
         <strong>Privacy:</strong> This tool runs 100% in your web browser. Uploaded photos and logos never leave your computer or phone.

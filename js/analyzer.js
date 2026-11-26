@@ -1,6 +1,6 @@
 /**
  * Springer Elementary Marquee Maker - Readability & Hardware Constraint Analyzer
- * Checks font sizes, word count, overflow, WCAG contrast, and outdoor LED glare.
+ * Checks font sizes, word count, overflow, WCAG contrast, and Test-mode image fit.
  */
 (function (global) {
   'use strict';
@@ -42,7 +42,66 @@
     return (brighter + 0.05) / (darker + 0.05);
   }
 
+  function analyzeTestMode(state) {
+    var checks = [
+      {
+        level: 'ok',
+        title: 'Exact 256 × 96 JPG Export',
+        detail: 'Downloads at the exact Springer marquee dimensions.'
+      }
+    ];
+
+    if (!state.testImage || !state.testImage.img) {
+      checks.push({
+        level: 'warn',
+        title: 'No image uploaded yet',
+        detail: 'Upload or drop a finished slide to preview it on the 256 × 96 LED grid.'
+      });
+      return checks;
+    }
+
+    var img = state.testImage.img;
+    var iw = img.naturalWidth || img.width || 0;
+    var ih = img.naturalHeight || img.height || 0;
+
+    if (iw === 256 && ih === 96) {
+      checks.push({
+        level: 'ok',
+        title: 'Exact 256 × 96 px Match',
+        detail: 'Your image already matches the sign pixel-for-pixel.'
+      });
+    } else if (iw > 0 && ih > 0) {
+      var ratio = iw / ih;
+      var signRatio = 256 / 96; // 2.667
+      if (Math.abs(ratio - signRatio) > 0.35) {
+        checks.push({
+          level: 'warn',
+          title: 'Different Shape (' + iw + '×' + ih + ' vs 8:3 sign)',
+          detail: '"Fit Whole Image" adds black sidebars; "Fill & Crop" trims top/bottom edges.'
+        });
+      } else {
+        checks.push({
+          level: 'ok',
+          title: 'Good 8:3 Proportions (' + iw + '×' + ih + ')',
+          detail: 'Scales cleanly to 256 × 96 px without heavy cropping.'
+        });
+      }
+    }
+
+    checks.push({
+      level: 'warn',
+      title: 'Check LED View Readability',
+      detail: 'Make sure text looks crisp in LED Matrix View — fine print & QR codes blur outdoors.'
+    });
+
+    return checks;
+  }
+
   function analyze(state, layoutMetrics) {
+    if (state.appMode === 'test') {
+      return analyzeTestMode(state);
+    }
+
     var checks = [];
     var metrics = layoutMetrics || {
       lines: [],
@@ -57,7 +116,7 @@
     // 1. Exact export dimensions confirmation
     checks.push({
       level: 'ok',
-      title: 'Exact Sign Format Ready',
+      title: '256 × 96 JPG Ready',
       detail: 'Exports as an exact 256 × 96 px opaque JPG file.'
     });
 
@@ -66,7 +125,7 @@
       checks.push({
         level: 'warn',
         title: 'Canvas is empty',
-        detail: 'Add text, choose a preset, or upload an image to preview it on the LED grid.'
+        detail: 'Pick a preset, type text, or add a sticker.'
       });
       return checks;
     }
@@ -88,20 +147,20 @@
       if (tooSmall.length > 0) {
         checks.push({
           level: 'error',
-          title: 'Text is too small for the LED marquee',
-          detail: tooSmall.join(', ') + ' is under 12px tall. Shorten the wording or raise font size to at least 14px.'
+          title: 'Text is too small',
+          detail: tooSmall.join(', ') + ' is under 12px. Shorten wording or raise size to 14px+.'
         });
       } else if (borderline.length > 0) {
         checks.push({
           level: 'warn',
-          title: 'Text is borderline small',
-          detail: borderline.join(', ') + ' may look blocky from the street. Aim for 14px or larger.'
+          title: 'Text is slightly small',
+          detail: borderline.join(', ') + ' — aim for 14px+ to read cleanly from cars.'
         });
       } else {
         checks.push({
           level: 'ok',
-          title: 'Readable Text Size',
-          detail: 'All text lines render at ' + Math.round(metrics.minRenderedSize) + 'px+ on the 96px tall display.'
+          title: 'Readable Text Size (' + Math.round(metrics.minRenderedSize) + 'px+)',
+          detail: 'All lines are large enough to read from the street.'
         });
       }
     }
@@ -111,7 +170,7 @@
       checks.push({
         level: 'error',
         title: 'Text extends off-screen',
-        detail: 'Turn on "Auto-fit long lines", shorten the text, or reduce font size.'
+        detail: 'Turn on "Auto-fit long lines", shorten text, or reduce font size.'
       });
     }
 
@@ -119,55 +178,51 @@
     if (metrics.totalWords > 10) {
       checks.push({
         level: 'warn',
-        title: 'Too much text (' + metrics.totalWords + ' words)',
-        detail: 'Drivers only have 2–3 seconds to read the sign. Aim for 10 words or fewer.'
+        title: 'Too many words (' + metrics.totalWords + ')',
+        detail: 'Families drive past in 2–3 seconds. Aim for 10 words or fewer.'
       });
     }
 
-    // 6. Contrast & outdoor LED glare check
-    if (!hasBackgroundImage) {
-      var bgLum = relativeLuminance(state.bgColor);
-      if (bgLum > 0.72) {
-        checks.push({
-          level: 'warn',
-          title: 'Bright background causes outdoor glare',
-          detail: 'White or pale backgrounds wash out text on LED signs. Dark backgrounds (black, navy, dark green) read much better.'
-        });
+    // 6. Contrast check (supports both bright and dark backgrounds!)
+    if (!hasBackgroundImage && activeLines.length > 0) {
+      var bgLum1 = relativeLuminance(state.bgColor);
+      var bgLum2 = state.bgStyle === 'gradient' ? relativeLuminance(state.bgColor2) : bgLum1;
+      var avgBgLum = (bgLum1 + bgLum2) / 2;
+
+      var lowContrastLines = [];
+      for (var j = 0; j < activeLines.length; j++) {
+        var l = activeLines[j];
+        var ratio1 = contrastRatio(state.bgColor, l.color);
+        var ratio2 = state.bgStyle === 'gradient' ? contrastRatio(state.bgColor2, l.color) : ratio1;
+        var minRatio = Math.min(ratio1, ratio2);
+        if (minRatio < 4.5) {
+          lowContrastLines.push('Line ' + (l.index + 1) + ' (' + minRatio.toFixed(1) + ':1)');
+        }
       }
 
-      if (activeLines.length > 0) {
-        var lowContrastLines = [];
-        for (var j = 0; j < activeLines.length; j++) {
-          var l = activeLines[j];
-          var ratio1 = contrastRatio(state.bgColor, l.color);
-          var ratio2 = state.bgStyle === 'gradient' ? contrastRatio(state.bgColor2, l.color) : ratio1;
-          var minRatio = Math.min(ratio1, ratio2);
-          if (minRatio < 4.5) {
-            lowContrastLines.push('Line ' + (l.index + 1) + ' (' + minRatio.toFixed(1) + ':1)');
-          }
-        }
-        if (lowContrastLines.length > 0) {
-          checks.push({
-            level: 'warn',
-            title: 'Low color contrast',
-            detail: lowContrastLines.join(', ') + ' has under 4.5:1 contrast against the background. Try white or bright yellow text.'
-          });
-        }
-      }
-    } else {
-      // Background photo uploaded
-      if (activeLines.length > 0 && state.bgScrim < 0.25) {
+      if (lowContrastLines.length > 0) {
+        var tip =
+          avgBgLum > 0.45
+            ? 'Try dark navy, charcoal, or dark green text on bright backgrounds.'
+            : 'Try white or bright yellow text on dark backgrounds.';
         checks.push({
           level: 'warn',
-          title: 'Photo background may hide text',
-          detail: 'Increase "Darken Photo Behind Text" to 25%+ or keep "Text Dark Outline" enabled so letters pop.'
+          title: 'Low Color Contrast',
+          detail: lowContrastLines.join(', ') + ' is under 4.5:1. ' + tip
+        });
+      } else {
+        checks.push({
+          level: 'ok',
+          title: 'Strong Color Contrast',
+          detail: 'Text stands out clearly against your background.'
         });
       }
-      if (activeLines.length === 0) {
+    } else if (hasBackgroundImage) {
+      if (activeLines.length > 0 && state.bgScrim < 0.25 && !state.textOutline) {
         checks.push({
           level: 'warn',
-          title: 'Inspect the LED Matrix preview carefully',
-          detail: 'Small flyers, fine print, and QR codes lose detail at 256 × 96 px. If you cannot read it easily in LED View, simplify the graphic.'
+          title: 'Photo may hide text',
+          detail: 'Increase "Darken Photo Behind Text" or enable letter outlines.'
         });
       }
     }
