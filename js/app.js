@@ -28,9 +28,9 @@
     textOutline: false,
     autoFit: true,
     lines: [
-      { text: 'SPRINGER PTA', size: 15, color: '#ffd60a', offsetX: 0, offsetY: 0, rotation: 0 },
-      { text: 'GO STINGERS!', size: 24, color: '#ffffff', offsetX: 0, offsetY: 0, rotation: 0 },
-      { text: 'BEE KIND & SAFE', size: 14, color: '#ffd60a', offsetX: 0, offsetY: 0, rotation: 0 }
+      { text: 'SPRINGER PTA', size: 15, color: '#ffd60a', offsetX: 18, offsetY: 0, rotation: 0 },
+      { text: 'GO STINGERS!', size: 23, color: '#ffffff', offsetX: 18, offsetY: 0, rotation: 0 },
+      { text: 'BEE KIND & SAFE', size: 14, color: '#ffd60a', offsetX: 18, offsetY: 0, rotation: 0 }
     ],
     bgImage: null, // { name, img, dataUrl }
     bgFit: 'cover',
@@ -1636,6 +1636,7 @@
   }
 
   function cacheElements() {
+    els.brandLogoImg = $('brand-logo-img');
     els.modeCreateBtn = $('mode-create-btn');
     els.modeTestBtn = $('mode-test-btn');
     els.createModePanel = $('create-mode-panel');
@@ -1748,6 +1749,10 @@
   function init() {
     cacheElements();
     populateStaticLists();
+    var logoSticker = P.getStickerById('stinger-bee');
+    if (els.brandLogoImg && logoSticker) {
+      els.brandLogoImg.src = logoSticker.src;
+    }
     bindEvents();
     applyPreset('springer-stingers', true);
 

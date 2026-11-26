@@ -89,14 +89,22 @@ body {
 }
 
 .brand-mark {
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   border-radius: 10px;
-  background: var(--springer-gold-bright);
-  border: 2px solid #111827;
+  background: #ffffff;
+  border: 2px solid var(--springer-gold-bright);
+  padding: 4px;
   display: grid;
   place-items: center;
   flex-shrink: 0;
+}
+
+.brand-mark img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  display: block;
 }
 
 .site-header h1 {

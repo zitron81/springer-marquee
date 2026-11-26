@@ -63,24 +63,11 @@
   var BUILTIN_STICKERS = [
     {
       id: 'stinger-bee',
-      name: 'Stinger Bee',
-      defaultSize: 44,
+      name: 'Stinger Logo',
+      defaultSize: 48,
       src: encodeSvg(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
-          '<path d="M26 14 Q23 7 18 6" fill="none" stroke="#111827" stroke-width="2.6" stroke-linecap="round"/>' +
-          '<circle cx="17" cy="6" r="2.2" fill="#ffd60a" stroke="#111827" stroke-width="1.5"/>' +
-          '<path d="M36 14 Q39 7 44 6" fill="none" stroke="#111827" stroke-width="2.6" stroke-linecap="round"/>' +
-          '<circle cx="45" cy="6" r="2.2" fill="#ffd60a" stroke="#111827" stroke-width="1.5"/>' +
-          '<ellipse cx="23" cy="21" rx="10" ry="13" transform="rotate(-24 23 21)" fill="#e0f2fe" stroke="#1e293b" stroke-width="2.5"/>' +
-          '<ellipse cx="41" cy="21" rx="10" ry="13" transform="rotate(24 41 21)" fill="#e0f2fe" stroke="#1e293b" stroke-width="2.5"/>' +
-          '<polygon points="5,40 16,35 16,45" fill="#111827"/>' +
-          '<ellipse cx="34" cy="39" rx="20" ry="15" fill="#ffd60a" stroke="#111827" stroke-width="3"/>' +
-          '<path d="M23 27 C20 34 20 44 23 51" fill="none" stroke="#111827" stroke-width="4.5" stroke-linecap="round"/>' +
-          '<path d="M33 25 C31 34 31 44 33 53" fill="none" stroke="#111827" stroke-width="4.5" stroke-linecap="round"/>' +
-          '<circle cx="45" cy="36" r="2.4" fill="#111827"/>' +
-          '<circle cx="45.7" cy="35.3" r="0.8" fill="#ffffff"/>' +
-          '<path d="M43 43 Q47 46 50 42" fill="none" stroke="#111827" stroke-width="2.3" stroke-linecap="round"/>' +
-        '</svg>'
+        global.SPRINGER_STINGER_SVG ||
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="28" fill="#ffd60a"/></svg>'
       )
     },
     {
@@ -179,11 +166,11 @@
         textOutline: false,
         autoFit: true,
         lines: [
-          { text: 'SPRINGER PTA', size: 15, color: '#ffd60a', offsetX: 0, offsetY: 0, rotation: 0 },
-          { text: 'GO STINGERS!', size: 24, color: '#ffffff', offsetX: 0, offsetY: 0, rotation: 0 },
-          { text: 'BEE KIND & SAFE', size: 14, color: '#ffd60a', offsetX: 0, offsetY: 0, rotation: 0 }
+          { text: 'SPRINGER PTA', size: 15, color: '#ffd60a', offsetX: 18, offsetY: 0, rotation: 0 },
+          { text: 'GO STINGERS!', size: 23, color: '#ffffff', offsetX: 18, offsetY: 0, rotation: 0 },
+          { text: 'BEE KIND & SAFE', size: 14, color: '#ffd60a', offsetX: 18, offsetY: 0, rotation: 0 }
         ],
-        starterSticker: { stickerId: 'stinger-bee', x: 24, y: 48, size: 34, rotation: -8, layer: 'front' }
+        starterSticker: { stickerId: 'stinger-bee', x: 24, y: 48, size: 36, rotation: 0, layer: 'front' }
       }
     },
     {
@@ -203,11 +190,11 @@
         textOutline: false,
         autoFit: true,
         lines: [
-          { text: 'SPRINGER PTA', size: 15, color: '#0b4f26', offsetX: 0, offsetY: 0, rotation: 0 },
-          { text: 'GO STINGERS!', size: 28, color: '#111827', offsetX: 0, offsetY: 0, rotation: 0 },
-          { text: 'MEETING TONIGHT 6PM', size: 14, color: '#0b4f26', offsetX: 0, offsetY: 0, rotation: 0 }
+          { text: 'SPRINGER PTA', size: 15, color: '#0b4f26', offsetX: -18, offsetY: 0, rotation: 0 },
+          { text: 'GO STINGERS!', size: 23, color: '#111827', offsetX: -18, offsetY: 0, rotation: 0 },
+          { text: 'MEETING TONIGHT 6PM', size: 14, color: '#0b4f26', offsetX: -18, offsetY: 0, rotation: 0 }
         ],
-        starterSticker: { stickerId: 'stinger-bee', x: 230, y: 48, size: 38, rotation: 8, layer: 'front' }
+        starterSticker: { stickerId: 'stinger-bee', x: 232, y: 48, size: 36, rotation: 0, layer: 'front' }
       }
     },
     {
