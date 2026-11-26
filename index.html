@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Springer Elementary Marquee Maker (256×96 JPG)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Fredoka:wght@700&family=Montserrat:wght@700;800&family=Oswald:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="js/presets.js" defer></script>
+  <script src="js/analyzer.js" defer></script>
+  <script src="js/renderer.js" defer></script>
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand-group">
+        <div class="brand-mark" aria-hidden="true">SE</div>
+        <div>
+          <h1>Springer Marquee Maker</h1>
+          <p class="subtitle">Design &amp; preview slides before submitting to the school sign</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span class="spec-badge" title="Required hardware dimensions and file format">256 × 96 px &bull; JPG</span>
+        <button type="button" id="open-guide-btn" class="btn btn-outline btn-sm">
+          Why no tiny text or QR codes?
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <!-- LEFT / TOP: LIVE MARQUEE PREVIEW & EXPORT -->
+    <section class="preview-column" aria-label="Live marquee preview and export">
+      <div class="card preview-card">
+        <div class="preview-toolbar">
+          <div class="segmented" role="group" aria-label="Preview display mode">
+            <button type="button" class="seg-btn is-active" data-preview-mode="led" aria-pressed="true">
+              LED Matrix View
+            </button>
+            <button type="button" class="seg-btn" data-preview-mode="pixel" aria-pressed="false">
+              Crisp Pixel View
+            </button>
+          </div>
+          <button type="button" id="reset-btn" class="btn btn-ghost btn-sm" title="Reset to starter birthday template">
+            Reset
+          </button>
+        </div>
+
+        <div class="marquee-bezel">
+          <div class="marquee-screen-wrap">
+            <canvas
+              id="display-canvas"
+              width="1024"
+              height="384"
+              tabindex="0"
+              aria-label="Interactive 256 by 96 marquee preview. Drag stickers or background photos here, or use arrow keys to nudge selected sticker."
+            ></canvas>
+          </div>
+          <div class="bezel-footer">
+            <span>SPRINGER ELEMENTARY LED SIGN</span>
+            <span id="canvas-interaction-hint">Tip: Drag stickers directly on the sign</span>
+          </div>
+        </div>
+
+        <div class="actual-size-row">
+          <div class="actual-size-label">
+            <strong>Actual 1:1 Pixel Size (256 × 96)</strong>
+            <span>Every pixel below is one physical LED cluster on the sign.</span>
+          </div>
+          <div class="actual-canvas-frame">
+            <canvas id="actual-canvas" width="256" height="96" aria-label="Actual 1 to 1 size 256 by 96 pixel preview"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- READABILITY CHECKS -->
+      <div class="card checks-card">
+        <div class="section-head">
+          <h2>Readability Check</h2>
+          <span class="badge-note">Live street-visibility guardrails</span>
+        </div>
+        <ul id="checks-list" class="checks-list" aria-live="polite"></ul>
+      </div>
+
+      <!-- EXPORT BAR -->
+      <div class="card export-card">
+        <div class="export-main">
+          <button type="button" id="download-btn" class="btn btn-primary btn-lg">
+            <span>Download 256×96 JPG</span>
+            <span id="file-size-badge" class="file-size-pill">~18 KB</span>
+          </button>
+          <p class="filename-row">
+            File: <code id="filename-preview">happy-birthday-maya-256x96.jpg</code>
+          </p>
+        </div>
+
+        <details class="export-options">
+          <summary>JPG Quality Options</summary>
+          <div class="control-row">
+            <label for="jpg-quality">
+              Image Quality: <strong id="jpg-quality-val">95%</strong>
+            </label>
+            <input type="range" id="jpg-quality" min="85" max="100" step="1" value="95">
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <!-- RIGHT / BOTTOM: EDITOR CONTROLS -->
+    <section class="controls-column" aria-label="Slide design controls">
+      <div class="card controls-card">
+        <div class="tabs-bar" role="tablist" aria-label="Design sections">
+          <button type="button" role="tab" id="tab-presets" aria-controls="panel-presets" aria-selected="true" class="tab-btn is-active">
+            Presets
+          </button>
+          <button type="button" role="tab" id="tab-text" aria-controls="panel-text" aria-selected="false" class="tab-btn">
+            Text
+          </button>
+          <button type="button" role="tab" id="tab-background" aria-controls="panel-background" aria-selected="false" class="tab-btn">
+            Background
+          </button>
+          <button type="button" role="tab" id="tab-stickers" aria-controls="panel-stickers" aria-selected="false" class="tab-btn">
+            Stickers &amp; PNGs
+          </button>
+        </div>
+
+        <!-- TAB 1: PRESETS -->
+        <div id="panel-presets" role="tabpanel" aria-labelledby="tab-presets" class="tab-panel is-active">
+          <div class="panel-intro">
+            <p>Start with a high-contrast layout built for passing cars, or test an image you already made.</p>
+            <button type="button" id="shortcut-check-image" class="btn btn-secondary btn-sm">
+              Check an Existing Image
+            </button>
+          </div>
+          <div id="presets-grid" class="presets-grid"></div>
+        </div>
+
+        <!-- TAB 2: TEXT -->
+        <div id="panel-text" role="tabpanel" aria-labelledby="tab-text" class="tab-panel" hidden>
+          <div class="control-grid two-col">
+            <div class="field">
+              <label for="font-select">Bold LED Font</label>
+              <select id="font-select"></select>
+            </div>
+            <div class="field">
+              <span class="field-label">Alignment</span>
+              <div class="segmented full-width" role="group" aria-label="Text horizontal alignment">
+                <button type="button" class="seg-btn" data-align="left" aria-pressed="false">Left</button>
+                <button type="button" class="seg-btn is-active" data-align="center" aria-pressed="true">Center</button>
+                <button type="button" class="seg-btn" data-align="right" aria-pressed="false">Right</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="toggle-row">
+            <label class="checkbox-pill">
+              <input type="checkbox" id="auto-fit" checked>
+              <span>Auto-fit long lines to sign width</span>
+            </label>
+            <label class="checkbox-pill">
+              <input type="checkbox" id="text-outline" checked>
+              <span>Dark outline behind letters</span>
+            </label>
+          </div>
+
+          <div class="control-row compact-slider">
+            <label for="text-offset-y">Vertical Text Shift: <strong id="text-offset-y-val">0 px</strong></label>
+            <input type="range" id="text-offset-y" min="-24" max="24" step="1" value="0">
+          </div>
+
+          <div class="lines-stack">
+            <!-- Line 1 -->
+            <fieldset class="line-card">
+              <legend>Line 1 (Top)</legend>
+              <div class="line-input-row">
+                <input type="text" id="line-text-0" data-line-text="0" maxlength="48" placeholder="e.g. HAPPY BIRTHDAY" aria-label="Line 1 text">
+                <button type="button" class="btn btn-ghost btn-sm" data-line-clear="0" aria-label="Clear line 1">Clear</button>
+              </div>
+              <div class="line-meta-row">
+                <div class="slider-group">
+                  <label for="line-size-0">
+                    Size: <strong id="line-size-val-0">17px</strong>
+                    <span class="safe-hint">(14px+ recommended)</span>
+                  </label>
+                  <input type="range" id="line-size-0" data-line-size="0" min="10" max="48" step="1" value="17">
+                </div>
+                <div class="color-group">
+                  <label for="line-color-0" class="sr-only">Line 1 color</label>
+                  <input type="color" id="line-color-0" data-line-color="0" value="#ffd60a" title="Custom color">
+                  <div class="swatch-strip" data-line-swatches="0" aria-label="Line 1 quick colors"></div>
+                </div>
+              </div>
+            </fieldset>
+
+            <!-- Line 2 -->
+            <fieldset class="line-card">
+              <legend>Line 2 (Main Headline)</legend>
+              <div class="line-input-row">
+                <input type="text" id="line-text-1" data-line-text="1" maxlength="48" placeholder="e.g. MAYA!" aria-label="Line 2 text">
+                <button type="button" class="btn btn-ghost btn-sm" data-line-clear="1" aria-label="Clear line 2">Clear</button>
+              </div>
+              <div class="line-meta-row">
+                <div class="slider-group">
+                  <label for="line-size-1">
+                    Size: <strong id="line-size-val-1">30px</strong>
+                    <span class="safe-hint">(14px+ recommended)</span>
+                  </label>
+                  <input type="range" id="line-size-1" data-line-size="1" min="10" max="48" step="1" value="30">
+                </div>
+                <div class="color-group">
+                  <label for="line-color-1" class="sr-only">Line 2 color</label>
+                  <input type="color" id="line-color-1" data-line-color="1" value="#ffffff" title="Custom color">
+                  <div class="swatch-strip" data-line-swatches="1" aria-label="Line 2 quick colors"></div>
+                </div>
+              </div>
+            </fieldset>
+
+            <!-- Line 3 -->
+            <fieldset class="line-card">
+              <legend>Line 3 (Bottom Note — Optional)</legend>
+              <div class="line-input-row">
+                <input type="text" id="line-text-2" data-line-text="2" maxlength="48" placeholder="Optional short line" aria-label="Line 3 text">
+                <button type="button" class="btn btn-ghost btn-sm" data-line-clear="2" aria-label="Clear line 3">Clear</button>
+              </div>
+              <div class="line-meta-row">
+                <div class="slider-group">
+                  <label for="line-size-2">
+                    Size: <strong id="line-size-val-2">14px</strong>
+                    <span class="safe-hint">(14px+ recommended)</span>
+                  </label>
+                  <input type="range" id="line-size-2" data-line-size="2" min="10" max="48" step="1" value="14">
+                </div>
+                <div class="color-group">
+                  <label for="line-color-2" class="sr-only">Line 3 color</label>
+                  <input type="color" id="line-color-2" data-line-color="2" value="#ff4d8d" title="Custom color">
+                  <div class="swatch-strip" data-line-swatches="2" aria-label="Line 3 quick colors"></div>
+                </div>
+              </div>
+            </fieldset>
+          </div>
+        </div>
+
+        <!-- TAB 3: BACKGROUND -->
+        <div id="panel-background" role="tabpanel" aria-labelledby="tab-background" class="tab-panel" hidden>
+          <div class="sub-section">
+            <h3>Background Colors &amp; Accent</h3>
+            <div class="control-grid two-col">
+              <div class="field">
+                <label for="bg-style">Fill Style</label>
+                <select id="bg-style">
+                  <option value="solid">Solid Color</option>
+                  <option value="gradient">Two-Color Gradient</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="motif-select">Border / Accent</label>
+                <select id="motif-select">
+                  <option value="none">None</option>
+                  <option value="border">Outer Frame</option>
+                  <option value="top-bar">Top &amp; Bottom Bars</option>
+                  <option value="confetti">Confetti Dots</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="color-pickers-row">
+              <div class="field">
+                <label for="bg-color">Primary Color</label>
+                <div class="color-input-combo">
+                  <input type="color" id="bg-color" value="#120d31">
+                  <div id="bg-swatches" class="swatch-strip" aria-label="Quick background colors"></div>
+                </div>
+              </div>
+              <div class="field" id="bg-color2-wrap" hidden>
+                <label for="bg-color2">Gradient Second Color</label>
+                <input type="color" id="bg-color2" value="#25144e">
+              </div>
+              <div class="field" id="motif-color-wrap" hidden>
+                <label for="motif-color">Accent Color</label>
+                <input type="color" id="motif-color" value="#ffd60a">
+              </div>
+            </div>
+          </div>
+
+          <div class="sub-section">
+            <h3>Upload Full Graphic or Photo Background</h3>
+            <p class="helper-text">
+              Upload an image to resize it to 256×96, or use it behind text. Everything stays on your device.
+            </p>
+            <div id="bg-dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload background image by clicking or dropping a file">
+              <input type="file" id="bg-file-input" accept="image/*" class="sr-only">
+              <strong>Choose or Drop Background Image</strong>
+              <span>PNG, JPG, WebP, or GIF</span>
+            </div>
+
+            <div id="bg-image-controls" class="bg-image-controls" hidden>
+              <div class="control-grid two-col">
+                <div class="field">
+                  <label for="bg-fit">Resize Mode</label>
+                  <select id="bg-fit">
+                    <option value="cover">Fill &amp; Crop (No Black Bars)</option>
+                    <option value="contain">Fit Whole Image Inside</option>
+                    <option value="stretch">Stretch to 256×96</option>
+                  </select>
+                </div>
+                <div class="field align-end">
+                  <button type="button" id="bg-center-btn" class="btn btn-outline btn-sm">Center Image</button>
+                  <button type="button" id="bg-remove-btn" class="btn btn-danger btn-sm">Remove Photo</button>
+                </div>
+              </div>
+
+              <div class="control-row">
+                <label for="bg-zoom">Zoom: <strong id="bg-zoom-val">100%</strong></label>
+                <input type="range" id="bg-zoom" min="0.5" max="3" step="0.05" value="1">
+              </div>
+              <div class="control-grid two-col">
+                <div class="control-row">
+                  <label for="bg-offset-x">Horizontal Pan: <strong id="bg-offset-x-val">0 px</strong></label>
+                  <input type="range" id="bg-offset-x" min="-160" max="160" step="1" value="0">
+                </div>
+                <div class="control-row">
+                  <label for="bg-offset-y">Vertical Pan: <strong id="bg-offset-y-val">0 px</strong></label>
+                  <input type="range" id="bg-offset-y" min="-100" max="100" step="1" value="0">
+                </div>
+              </div>
+              <div class="control-row">
+                <label for="bg-scrim">Darken Photo Behind Text: <strong id="bg-scrim-val">35%</strong></label>
+                <input type="range" id="bg-scrim" min="0" max="85" step="5" value="35">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: STICKERS & PNG OVERLAYS -->
+        <div id="panel-stickers" role="tabpanel" aria-labelledby="tab-stickers" class="tab-panel" hidden>
+          <div class="sub-section">
+            <h3>Upload Transparent PNG / Logo</h3>
+            <div id="overlay-dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload PNG sticker or logo by clicking or dropping a file">
+              <input type="file" id="overlay-file-input" accept="image/png,image/*" class="sr-only">
+              <strong>Choose or Drop a PNG Sticker / Logo</strong>
+              <span>Drag on the preview sign or use sliders below to place it</span>
+            </div>
+          </div>
+
+          <div class="sub-section">
+            <h3>Quick Built-in Stickers</h3>
+            <div id="builtin-stickers-grid" class="stickers-grid"></div>
+          </div>
+
+          <div class="sub-section">
+            <h3>Active Stickers on Sign</h3>
+            <div id="active-overlays-list" class="active-overlays-list">
+              <p class="empty-note">No stickers added yet.</p>
+            </div>
+
+            <div id="selected-overlay-controls" class="selected-overlay-controls" hidden>
+              <div class="control-row">
+                <label for="ov-size">Sticker Size: <strong id="ov-size-val">42 px</strong></label>
+                <input type="range" id="ov-size" min="12" max="96" step="1" value="42">
+              </div>
+              <div class="control-grid two-col">
+                <div class="control-row">
+                  <label for="ov-x">X Position: <strong id="ov-x-val">128</strong></label>
+                  <input type="range" id="ov-x" min="0" max="256" step="1" value="128">
+                </div>
+                <div class="control-row">
+                  <label for="ov-y">Y Position: <strong id="ov-y-val">48</strong></label>
+                  <input type="range" id="ov-y" min="0" max="96" step="1" value="48">
+                </div>
+              </div>
+              <div class="nudge-toolbar">
+                <div class="nudge-pad" role="group" aria-label="Nudge sticker position">
+                  <button type="button" class="btn btn-outline btn-sm" data-nudge="left" aria-label="Move left">&larr;</button>
+                  <button type="button" class="btn btn-outline btn-sm" data-nudge="up" aria-label="Move up">&uarr;</button>
+                  <button type="button" class="btn btn-outline btn-sm" data-nudge="down" aria-label="Move down">&darr;</button>
+                  <button type="button" class="btn btn-outline btn-sm" data-nudge="right" aria-label="Move right">&rarr;</button>
+                </div>
+                <div class="overlay-actions">
+                  <button type="button" id="ov-center-btn" class="btn btn-outline btn-sm">Center</button>
+                  <button type="button" id="ov-front-btn" class="btn btn-outline btn-sm">Bring Front</button>
+                  <button type="button" id="ov-delete-btn" class="btn btn-danger btn-sm">Delete</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- EDUCATIONAL MODAL: WHY 256x96 & NO QR CODES -->
+  <dialog id="guide-dialog" class="guide-dialog" aria-labelledby="guide-title">
+    <div class="dialog-header">
+      <h2 id="guide-title">Why the School Marquee Needs Big Text (and No QR Codes)</h2>
+      <button type="button" id="close-guide-btn" class="btn btn-ghost btn-sm" aria-label="Close guide">Close</button>
+    </div>
+    <div class="dialog-body">
+      <p>
+        Our outdoor LED marquee is <strong>256 pixels wide by 96 pixels tall</strong> — about 1/10th the width of a phone screen.
+      </p>
+      <ul>
+        <li><strong>Small text turns into illegible blocks:</strong> Letters shorter than 12–14 pixels tall only have a handful of LED lights to form curves like "e", "a", and "s".</li>
+        <li><strong>QR codes don't scan outdoors:</strong> A QR code needs dozens of tiny crisp squares plus white borders. On 96 vertical LEDs with outdoor sunlight glare, phones cannot focus on it from a car.</li>
+        <li><strong>Keep it under 10 words:</strong> Families drive past in 2–3 seconds. Big bold text on a dark background reads cleanly from the street.</li>
+      </ul>
+      <p class="dialog-privacy">
+        <strong>Privacy:</strong> This tool runs 100% in your web browser. Uploaded photos and logos never leave your computer or phone.
+      </p>
+    </div>
+  </dialog>
+
+  <footer class="site-footer">
+    <p>Springer Elementary PTA Marquee Helper &bull; Runs 100% locally in your browser &bull; Exports exact 256×96 JPG</p>
+  </footer>
+</body>
+</html>
