@@ -134,6 +134,7 @@
     if (activeLines.length > 0) {
       var tooSmall = [];
       var borderline = [];
+      var slimSmall = [];
       for (var i = 0; i < activeLines.length; i++) {
         var line = activeLines[i];
         var rendered = Math.round(line.renderedSize * 10) / 10;
@@ -141,6 +142,9 @@
           tooSmall.push('Line ' + (line.index + 1) + ' (' + Math.floor(rendered) + 'px)');
         } else if (rendered < 14) {
           borderline.push('Line ' + (line.index + 1) + ' (' + Math.floor(rendered) + 'px)');
+        }
+        if (line.fontObj && line.fontObj.slim && rendered < 15) {
+          slimSmall.push('Line ' + (line.index + 1) + ' (' + Math.floor(rendered) + 'px)');
         }
       }
 
@@ -163,6 +167,14 @@
           detail: 'All lines are large enough to read from the street.'
         });
       }
+
+      if (slimSmall.length > 0) {
+        checks.push({
+          level: 'warn',
+          title: 'Slim Font Needs Extra Size',
+          detail: slimSmall.join(', ') + ' uses a slim font under 15px; raise to 15px+ so thin LED strokes stay readable.'
+        });
+      }
     }
 
     // 4. Text overflow check when auto-fit is disabled
@@ -171,6 +183,14 @@
         level: 'error',
         title: 'Text extends off-screen',
         detail: 'Turn on "Auto-fit long lines", shorten text, or reduce font size.'
+      });
+    }
+
+    if (metrics.hasVerticalOverflow) {
+      checks.push({
+        level: 'warn',
+        title: 'Lines Crowd Top/Bottom Edges',
+        detail: 'Total text height exceeds 96px. Reduce font sizes or use fewer lines.'
       });
     }
 
@@ -223,6 +243,76 @@
           level: 'warn',
           title: 'Photo may hide text',
           detail: 'Increase "Darken Photo Behind Text" or enable letter outlines.'
+        });
+      }
+    }
+
+    // 7. Pixel-locked QR code hardware checks
+    var qrOverlays = [];
+    if (state.overlays) {
+      for (var q = 0; q < state.overlays.length; q++) {
+        if (state.overlays[q].kind === 'qr') qrOverlays.push(state.overlays[q]);
+      }
+    }
+    for (var qi = 0; qi < qrOverlays.length; qi++) {
+      var qr = qrOverlays[qi];
+      var totalPx = qr._drawW || (qr.qrModules + qr.qrQuietZone * 2) * qr.qrScale;
+      if (qr.qrScale >= 3) {
+        checks.push({
+          level: 'ok',
+          title: 'QR Pixel-Locked (3×3 LEDs/sq)',
+          detail:
+            'Version ' +
+            qr.qrVersion +
+            ' (' +
+            qr.qrModules +
+            '×' +
+            qr.qrModules +
+            '), ' +
+            totalPx +
+            '×' +
+            totalPx +
+            ' px — crisp for walk-up scanning (not passing cars).'
+        });
+      } else if (qr.qrScale === 2) {
+        checks.push({
+          level: 'warn',
+          title: 'QR at 2×2 LEDs/sq',
+          detail: 'Shorten URL to ≤32 chars (or enable uppercase) to reach 3×3 LEDs per square.'
+        });
+      } else {
+        checks.push({
+          level: 'error',
+          title: 'QR Squares Too Small (1×1 LED)',
+          detail: 'Each square is 1 LED dot and rarely scans outdoors. Use a shorter redirect URL.'
+        });
+      }
+
+      if (qr.qrQuietZone < 3) {
+        checks.push({
+          level: 'warn',
+          title: 'Tight QR White Border',
+          detail: 'Quiet zone is ' + qr.qrQuietZone + ' squares; 3–4 squares are recommended.'
+        });
+      }
+
+      if (
+        typeof qr._left === 'number' &&
+        typeof qr._top === 'number' &&
+        (qr._left < 0 || qr._top < 0 || qr._left + totalPx > 256 || qr._top + totalPx > 96)
+      ) {
+        checks.push({
+          level: 'error',
+          title: 'QR Code Clipped at Edge',
+          detail: 'Move the QR code inside the 256 × 96 sign boundaries.'
+        });
+      }
+
+      if (state.jpgQuality < 0.98) {
+        checks.push({
+          level: 'warn',
+          title: 'Set JPG Quality to 100% for QR',
+          detail: 'Lower JPG quality adds grey edge ringing around QR squares.'
         });
       }
     }

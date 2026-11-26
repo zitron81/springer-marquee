@@ -132,38 +132,83 @@
     ctx.restore();
   }
 
-  function drawImageFitted(ctx, img, fit, zoom, offsetX, offsetY, w, h) {
-    if (!img) return;
+  function drawImageFitted(ctx, img, fit, zoom, offsetX, offsetY, w, h, scaleX, scaleY) {
+    if (!img) return null;
     var iw = img.naturalWidth || img.width;
     var ih = img.naturalHeight || img.height;
-    if (!iw || !ih) return;
+    if (!iw || !ih) return null;
 
-    ctx.save();
+    var baseW;
+    var baseH;
     if (fit === 'stretch') {
-      ctx.drawImage(img, 0, 0, w, h);
+      baseW = w;
+      baseH = h;
     } else {
       var baseScale =
         fit === 'contain'
           ? Math.min(w / iw, h / ih)
           : Math.max(w / iw, h / ih);
-      var z = clamp(zoom || 1, 0.25, 4);
-      var drawW = iw * baseScale * z;
-      var drawH = ih * baseScale * z;
-      var drawX = (w - drawW) / 2 + (offsetX || 0);
-      var drawY = (h - drawH) / 2 + (offsetY || 0);
-      ctx.drawImage(img, drawX, drawY, drawW, drawH);
+      baseW = iw * baseScale;
+      baseH = ih * baseScale;
     }
+
+    var sx = typeof scaleX === 'number' ? clamp(scaleX, 0.2, 4) : clamp(zoom || 1, 0.2, 4);
+    var sy = typeof scaleY === 'number' ? clamp(scaleY, 0.2, 4) : clamp(zoom || 1, 0.2, 4);
+    var drawW = baseW * sx;
+    var drawH = baseH * sy;
+    var drawX = (w - drawW) / 2 + (offsetX || 0);
+    var drawY = (h - drawH) / 2 + (offsetY || 0);
+
+    ctx.save();
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
     ctx.restore();
+
+    return {
+      naturalWidth: iw,
+      naturalHeight: ih,
+      drawW: Math.round(drawW),
+      drawH: Math.round(drawH)
+    };
   }
 
   function drawOverlays(ctx, overlays, layerFilter) {
     if (!overlays || overlays.length === 0) return;
     for (var i = 0; i < overlays.length; i++) {
       var ov = overlays[i];
-      if (!ov.img) continue;
       var isBack = ov.layer === 'back';
       if (layerFilter === 'back' && !isBack) continue;
       if (layerFilter === 'front' && isBack) continue;
+
+      if (ov.kind === 'qr') {
+        if (!ov.qrMatrix || !ov.qrModules || !ov.qrScale) continue;
+        var qz = typeof ov.qrQuietZone === 'number' ? ov.qrQuietZone : 4;
+        var scale = ov.qrScale;
+        var totalPx = (ov.qrModules + qz * 2) * scale;
+        var left = Math.round(ov.x - totalPx / 2);
+        var top = Math.round(ov.y - totalPx / 2);
+        ov._drawW = totalPx;
+        ov._drawH = totalPx;
+        ov._left = left;
+        ov._top = top;
+
+        ctx.save();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(left, top, totalPx, totalPx);
+        ctx.fillStyle = '#000000';
+        for (var r = 0; r < ov.qrModules; r++) {
+          var row = ov.qrMatrix[r];
+          var py = top + (r + qz) * scale;
+          for (var c = 0; c < ov.qrModules; c++) {
+            if (row[c]) {
+              ctx.fillRect(left + (c + qz) * scale, py, scale, scale);
+            }
+          }
+        }
+        ctx.restore();
+        continue;
+      }
+
+      if (!ov.img) continue;
 
       var iw = ov.img.naturalWidth || ov.img.width || 1;
       var ih = ov.img.naturalHeight || ov.img.height || 1;
@@ -203,12 +248,13 @@
 
     if (state.appMode === 'test') {
       ctx.save();
-      ctx.fillStyle = '#000000';
+      ctx.fillStyle = state.testBgColor || '#000000';
       ctx.fillRect(0, 0, w, h);
       ctx.restore();
 
+      var testImageMetrics = null;
       if (state.testImage && state.testImage.img) {
-        drawImageFitted(
+        testImageMetrics = drawImageFitted(
           ctx,
           state.testImage.img,
           state.testFit,
@@ -216,14 +262,19 @@
           state.testOffsetX,
           state.testOffsetY,
           w,
-          h
+          h,
+          state.testUnlockAspect ? state.testScaleX : undefined,
+          state.testUnlockAspect ? state.testScaleY : undefined
         );
       }
       return {
         lines: [],
         hasOverflow: false,
+        hasVerticalOverflow: false,
         minRenderedSize: null,
-        totalWords: 0
+        totalWords: 0,
+        testImageMetrics: testImageMetrics,
+        bgImageMetrics: null
       };
     }
 
@@ -248,8 +299,9 @@
     ctx.restore();
 
     // 2. Optional background image
+    var bgImageMetrics = null;
     if (state.bgImage && state.bgImage.img) {
-      drawImageFitted(
+      bgImageMetrics = drawImageFitted(
         ctx,
         state.bgImage.img,
         state.bgFit,
@@ -257,7 +309,9 @@
         state.bgOffsetX,
         state.bgOffsetY,
         w,
-        h
+        h,
+        state.bgUnlockAspect ? state.bgScaleX : undefined,
+        state.bgUnlockAspect ? state.bgScaleY : undefined
       );
     }
 
@@ -276,7 +330,6 @@
     drawOverlays(ctx, state.overlays, 'back');
 
     // 6. Text lines
-    var fontObj = P.getFontById(state.fontId);
     var safeMarginX = 8;
     var maxSafeWidth = w - safeMarginX * 2; // 240px
 
@@ -286,22 +339,24 @@
       var text = (raw.text || '').trim();
       if (!text) continue;
 
+      var lineFontObj = P.getFontById(raw.fontId || state.fontId);
       var targetSize = clamp(Number(raw.size) || 18, 8, 56);
       var renderedSize = targetSize;
 
-      ctx.font = buildFontString(fontObj, renderedSize);
+      ctx.font = buildFontString(lineFontObj, renderedSize);
       var measuredWidth = ctx.measureText(text).width;
 
       if (state.autoFit && measuredWidth > maxSafeWidth) {
         var scaleFactor = maxSafeWidth / measuredWidth;
         renderedSize = Math.max(8, targetSize * scaleFactor);
-        ctx.font = buildFontString(fontObj, renderedSize);
+        ctx.font = buildFontString(lineFontObj, renderedSize);
         measuredWidth = ctx.measureText(text).width;
       }
 
       activeLines.push({
         index: i,
         text: text,
+        fontObj: lineFontObj,
         color: raw.color || '#ffffff',
         offsetX: Number(raw.offsetX) || 0,
         offsetY: Number(raw.offsetY) || 0,
@@ -313,7 +368,7 @@
       });
     }
 
-    var lineGap = activeLines.length >= 3 ? 3 : 5;
+    var lineGap = activeLines.length >= 4 ? 2 : activeLines.length >= 3 ? 3 : 5;
     var totalHeight = 0;
     for (var k = 0; k < activeLines.length; k++) {
       totalHeight += activeLines[k].renderedSize;
@@ -321,6 +376,7 @@
     }
 
     var startY = (h - totalHeight) / 2;
+    var hasVerticalOverflow = totalHeight > h - 2;
     var minRenderedSize = null;
     var hasOverflow = false;
 
@@ -349,7 +405,7 @@
       if (line.rotation) {
         ctx.rotate((line.rotation * Math.PI) / 180);
       }
-      ctx.font = buildFontString(fontObj, line.renderedSize);
+      ctx.font = buildFontString(line.fontObj, line.renderedSize);
 
       if (state.textOutline) {
         var isDarkText = A && A.relativeLuminance(line.color) < 0.35;
@@ -378,8 +434,11 @@
     return {
       lines: activeLines,
       hasOverflow: hasOverflow,
+      hasVerticalOverflow: hasVerticalOverflow,
       minRenderedSize: minRenderedSize,
-      totalWords: countWords(state.lines)
+      totalWords: countWords(state.lines),
+      bgImageMetrics: bgImageMetrics,
+      testImageMetrics: null
     };
   }
 
@@ -417,12 +476,14 @@
       for (var i = 0; i < state.overlays.length; i++) {
         var ov = state.overlays[i];
         if (ov.id === sel.id && ov._drawW && ov._drawH) {
+          var isQr = ov.kind === 'qr';
           return {
-            cx: ov.x,
-            cy: ov.y,
+            cx: isQr && typeof ov._left === 'number' ? ov._left + ov._drawW / 2 : ov.x,
+            cy: isQr && typeof ov._top === 'number' ? ov._top + ov._drawH / 2 : ov.y,
             w: ov._drawW,
             h: ov._drawH,
-            rotation: ov.rotation || 0
+            rotation: isQr ? 0 : ov.rotation || 0,
+            locked: isQr
           };
         }
       }
@@ -532,72 +593,76 @@
       ctx.strokeRect(-boxW / 2, -boxH / 2, boxW, boxH);
       ctx.setLineDash([]);
 
-      // Stem connecting box edge to handle
-      var edgeY = handle.sign * (boxH / 2);
-      var stemEndY = handle.sign * ((geom.h / 2 + HANDLE_OFFSET) * SCALE);
-      ctx.strokeStyle = '#111827';
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(0, edgeY);
-      ctx.lineTo(0, stemEndY);
-      ctx.stroke();
-      ctx.strokeStyle = '#ffd60a';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(0, edgeY);
-      ctx.lineTo(0, stemEndY);
-      ctx.stroke();
-      ctx.restore();
-
-      // Rotation handle circle in world space
-      var hx = handle.x * SCALE;
-      var hy = handle.y * SCALE;
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(hx, hy, 11, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffd60a';
-      ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#111827';
-      ctx.stroke();
-
-      // Tiny inner rotation arc icon
-      ctx.beginPath();
-      ctx.arc(hx, hy, 4.5, 0.3, Math.PI * 1.65);
-      ctx.strokeStyle = '#111827';
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-      ctx.restore();
-
-      // Live angle badge while rotating
-      if (uiState && uiState.drag && uiState.drag.type === 'rotate') {
-        var label = Math.round(geom.rotation) + '°';
-        var pillX = clamp(hx + 16, 40, dw - 60);
-        var pillY = clamp(hy - 14, 18, dh - 24);
-        drawBadgePill(ctx, pillX, pillY, label);
-      }
-
-      // Corner resize handle for selected stickers/PNGs
-      if (uiState && uiState.selection && uiState.selection.type === 'overlay') {
-        var rHandle = getResizeHandlePos(geom.cx, geom.cy, geom.w, geom.h, geom.rotation);
-        var rx = rHandle.x * SCALE;
-        var ry = rHandle.y * SCALE;
-        ctx.save();
-        ctx.translate(rx, ry);
-        ctx.rotate(rad);
-        ctx.fillStyle = '#ffffff';
+      if (!geom.locked) {
+        // Stem connecting box edge to handle
+        var edgeY = handle.sign * (boxH / 2);
+        var stemEndY = handle.sign * ((geom.h / 2 + HANDLE_OFFSET) * SCALE);
         ctx.strokeStyle = '#111827';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(0, edgeY);
+        ctx.lineTo(0, stemEndY);
+        ctx.stroke();
+        ctx.strokeStyle = '#ffd60a';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, edgeY);
+        ctx.lineTo(0, stemEndY);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      if (!geom.locked) {
+        // Rotation handle circle in world space
+        var hx = handle.x * SCALE;
+        var hy = handle.y * SCALE;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(hx, hy, 11, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffd60a';
+        ctx.fill();
         ctx.lineWidth = 3;
-        ctx.fillRect(-8, -8, 16, 16);
-        ctx.strokeRect(-8, -8, 16, 16);
-        ctx.fillStyle = '#156136';
-        ctx.fillRect(-3, -3, 6, 6);
+        ctx.strokeStyle = '#111827';
+        ctx.stroke();
+
+        // Tiny inner rotation arc icon
+        ctx.beginPath();
+        ctx.arc(hx, hy, 4.5, 0.3, Math.PI * 1.65);
+        ctx.strokeStyle = '#111827';
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
         ctx.restore();
 
-        if (uiState.drag && uiState.drag.type === 'resize') {
-          var sizePillX = clamp(rx + 14, 12, dw - 60);
-          var sizePillY = clamp(ry, 18, dh - 24);
-          drawBadgePill(ctx, sizePillX, sizePillY, Math.round(Math.max(geom.w, geom.h)) + 'px');
+        // Live angle badge while rotating
+        if (uiState && uiState.drag && uiState.drag.type === 'rotate') {
+          var label = Math.round(geom.rotation) + '°';
+          var pillX = clamp(hx + 16, 40, dw - 60);
+          var pillY = clamp(hy - 14, 18, dh - 24);
+          drawBadgePill(ctx, pillX, pillY, label);
+        }
+
+        // Corner resize handle for selected stickers/PNGs
+        if (uiState && uiState.selection && uiState.selection.type === 'overlay') {
+          var rHandle = getResizeHandlePos(geom.cx, geom.cy, geom.w, geom.h, geom.rotation);
+          var rx = rHandle.x * SCALE;
+          var ry = rHandle.y * SCALE;
+          ctx.save();
+          ctx.translate(rx, ry);
+          ctx.rotate(rad);
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = '#111827';
+          ctx.lineWidth = 3;
+          ctx.fillRect(-8, -8, 16, 16);
+          ctx.strokeRect(-8, -8, 16, 16);
+          ctx.fillStyle = '#156136';
+          ctx.fillRect(-3, -3, 6, 6);
+          ctx.restore();
+
+          if (uiState.drag && uiState.drag.type === 'resize') {
+            var sizePillX = clamp(rx + 14, 12, dw - 60);
+            var sizePillY = clamp(ry, 18, dh - 24);
+            drawBadgePill(ctx, sizePillX, sizePillY, Math.round(Math.max(geom.w, geom.h)) + 'px');
+          }
         }
       }
     }

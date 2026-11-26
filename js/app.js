@@ -7,6 +7,8 @@
   var P = global.MarqueePresets;
   var R = global.MarqueeRenderer;
   var A = global.MarqueeAnalyzer;
+  var QR = global.MarqueeQR;
+  var MAX_LINES = 6;
 
   var sourceCanvas = document.createElement('canvas');
   sourceCanvas.width = P.WIDTH;
@@ -35,6 +37,9 @@
     bgImage: null, // { name, img, dataUrl }
     bgFit: 'cover',
     bgZoom: 1,
+    bgUnlockAspect: false,
+    bgScaleX: 1,
+    bgScaleY: 1,
     bgOffsetX: 0,
     bgOffsetY: 0,
     bgScrim: 0.35,
@@ -42,9 +47,20 @@
     testImage: null, // { name, img, dataUrl }
     testFit: 'contain',
     testZoom: 1,
+    testUnlockAspect: false,
+    testScaleX: 1,
+    testScaleY: 1,
     testOffsetX: 0,
     testOffsetY: 0,
-    jpgQuality: 0.95
+    testBgColor: '#000000',
+    jpgQuality: 0.95,
+    qrDraft: {
+      url: 'https://springerpta.org',
+      uppercase: true,
+      scaleMode: 'auto',
+      quietZoneMode: 'auto',
+      ecc: 'L'
+    }
   };
 
   var uiState = {
@@ -123,6 +139,173 @@
       if (state.overlays[i].id === id) return state.overlays[i];
     }
     return null;
+  }
+
+  function getQrOverlay() {
+    for (var i = 0; i < state.overlays.length; i++) {
+      if (state.overlays[i].kind === 'qr') return state.overlays[i];
+    }
+    return null;
+  }
+
+  function clampQrCenter(x, y, totalPx) {
+    var left = clamp(Math.round(x - totalPx / 2), 0, Math.max(0, P.WIDTH - totalPx));
+    var top = clamp(Math.round(y - totalPx / 2), 0, Math.max(0, P.HEIGHT - totalPx));
+    return {
+      left: left,
+      top: top,
+      x: left + totalPx / 2,
+      y: top + totalPx / 2
+    };
+  }
+
+  function buildQrOverlayData(draft) {
+    if (!QR) return { error: 'QR encoder unavailable.' };
+    var raw = (draft.url || '').trim();
+    if (!raw) {
+      return { error: 'Enter a link or short text to generate a QR code.' };
+    }
+    var payload = draft.uppercase ? raw.toUpperCase() : raw;
+    var enc = QR.encode(payload, draft.ecc);
+    if (enc.error) {
+      return { error: enc.error, payload: payload };
+    }
+    var layout = QR.computeLayout(enc.size, draft.scaleMode, draft.quietZoneMode, P.HEIGHT);
+    var thumbSrc = QR.toThumbDataUrl(enc.matrix, layout.quietZone);
+    return {
+      payload: payload,
+      encoded: enc,
+      layout: layout,
+      thumbSrc: thumbSrc
+    };
+  }
+
+  function placeQrWithTextShift(ov, side, shiftText) {
+    if (!ov || ov.kind !== 'qr') return;
+    var totalPx = (ov.qrModules + ov.qrQuietZone * 2) * ov.qrScale;
+    var padY = Math.max(0, Math.floor((P.HEIGHT - totalPx) / 2));
+    var padX = Math.min(4, padY);
+    var left;
+    var freeStart;
+    var freeEnd;
+
+    if (side === 'left') {
+      left = padX;
+      freeStart = left + totalPx + 6;
+      freeEnd = P.WIDTH - 6;
+    } else if (side === 'right') {
+      left = Math.max(0, P.WIDTH - totalPx - padX);
+      freeStart = 6;
+      freeEnd = left - 6;
+    } else {
+      left = Math.max(0, Math.floor((P.WIDTH - totalPx) / 2));
+    }
+
+    var clamped = clampQrCenter(left + totalPx / 2, padY + totalPx / 2, totalPx);
+    ov.x = clamped.x;
+    ov.y = clamped.y;
+
+    if (shiftText !== false && (side === 'left' || side === 'right')) {
+      var freeWidth = Math.max(40, freeEnd - freeStart);
+      var targetCenterX = (freeStart + freeEnd) / 2;
+      var offsetDelta = Math.round(targetCenterX - P.WIDTH / 2);
+      state.align = 'center';
+
+      for (var i = 0; i < state.lines.length; i++) {
+        var line = state.lines[i];
+        line.offsetX = clamp(offsetDelta, -120, 120);
+        var text = (line.text || '').trim();
+        if (text) {
+          var fontObj = P.getFontById(line.fontId || state.fontId);
+          sourceCtx.save();
+          sourceCtx.font = (fontObj.weight || '700') + ' ' + line.size + 'px ' + fontObj.css;
+          var w = sourceCtx.measureText(text).width;
+          sourceCtx.restore();
+          if (w > freeWidth) {
+            line.size = clamp(Math.floor(line.size * (freeWidth / w)), 10, 48);
+          }
+        }
+      }
+      syncControlsFromState();
+    }
+  }
+
+  function upsertQrOverlay(selectOnAdd, snapSide, shiftText) {
+    var data = buildQrOverlayData(state.qrDraft);
+    if (!data || data.error) return null;
+
+    var existing = getQrOverlay();
+    var enc = data.encoded;
+    var layout = data.layout;
+    var nameLabel = 'QR (' + layout.scale + '×' + layout.scale + ' px/sq)';
+
+    if (existing) {
+      existing.name = nameLabel;
+      existing.src = data.thumbSrc;
+      existing.qrMatrix = enc.matrix;
+      existing.qrVersion = enc.version;
+      existing.qrModules = enc.size;
+      existing.qrScale = layout.scale;
+      existing.qrQuietZone = layout.quietZone;
+      existing.qrMode = enc.mode;
+      existing.qrEcc = enc.ecc;
+      existing.qrUrl = data.payload;
+      existing.size = layout.totalPx;
+      existing.rotation = 0;
+
+      if (snapSide) {
+        placeQrWithTextShift(existing, snapSide, shiftText);
+      } else {
+        var c = clampQrCenter(existing.x, existing.y, layout.totalPx);
+        existing.x = c.x;
+        existing.y = c.y;
+      }
+
+      if (selectOnAdd) {
+        uiState.selection = { type: 'overlay', id: existing.id };
+      }
+      syncSelectionUI();
+      syncQrPanelUI();
+      renderAll();
+      return existing;
+    }
+
+    var id = 'ov-' + uiState.overlayCounter++;
+    var item = {
+      id: id,
+      kind: 'qr',
+      name: nameLabel,
+      src: data.thumbSrc,
+      img: null,
+      x: P.WIDTH - Math.round(layout.totalPx / 2) - 4,
+      y: Math.round(P.HEIGHT / 2),
+      size: layout.totalPx,
+      rotation: 0,
+      layer: 'front',
+      qrMatrix: enc.matrix,
+      qrVersion: enc.version,
+      qrModules: enc.size,
+      qrScale: layout.scale,
+      qrQuietZone: layout.quietZone,
+      qrMode: enc.mode,
+      qrEcc: enc.ecc,
+      qrUrl: data.payload
+    };
+
+    state.overlays.push(item);
+    state.jpgQuality = 1.0;
+    els.jpgQuality.value = '100';
+    els.jpgQualityVal.textContent = '100%';
+
+    placeQrWithTextShift(item, snapSide || 'right', shiftText);
+
+    if (selectOnAdd !== false) {
+      uiState.selection = { type: 'overlay', id: id };
+    }
+    syncSelectionUI();
+    syncQrPanelUI();
+    renderAll();
+    return item;
   }
 
   function getSelectedOverlay() {
@@ -224,10 +407,54 @@
     els.checksList.innerHTML = html;
   }
 
+  function updateImageMetaLabel(metaEl, imgEntry, drawMetrics) {
+    if (!metaEl || !imgEntry || !imgEntry.img) return;
+    var iw = imgEntry.img.naturalWidth || imgEntry.img.width;
+    var ih = imgEntry.img.naturalHeight || imgEntry.img.height;
+    var label = imgEntry.name + ' • ' + iw + '×' + ih;
+    if (drawMetrics && drawMetrics.drawW && drawMetrics.drawH) {
+      label += ' → ' + drawMetrics.drawW + '×' + drawMetrics.drawH + ' px';
+    } else {
+      label += ' px';
+    }
+    metaEl.textContent = label;
+  }
+
+  function applyQuickImageResize(prefix, action) {
+    var imgEntry = state[prefix + 'Image'];
+    if (!imgEntry || !imgEntry.img) return;
+    var iw = imgEntry.img.naturalWidth || imgEntry.img.width || 1;
+    var ih = imgEntry.img.naturalHeight || imgEntry.img.height || 1;
+
+    if (action === 'stretch') {
+      state[prefix + 'Fit'] = 'stretch';
+      state[prefix + 'Zoom'] = 1;
+    } else {
+      state[prefix + 'Fit'] = 'contain';
+      var containScale = Math.min(P.WIDTH / iw, P.HEIGHT / ih);
+      var targetZoom = action === 'fit-w' ? P.WIDTH / (iw * containScale) : P.HEIGHT / (ih * containScale);
+      state[prefix + 'Zoom'] = clamp(Math.round(targetZoom * 50) / 50, 0.2, 4);
+    }
+    state[prefix + 'UnlockAspect'] = false;
+    state[prefix + 'ScaleX'] = state[prefix + 'Zoom'];
+    state[prefix + 'ScaleY'] = state[prefix + 'Zoom'];
+    state[prefix + 'OffsetX'] = 0;
+    state[prefix + 'OffsetY'] = 0;
+    syncControlsFromState();
+    renderAll();
+  }
+
   function renderAll() {
     var metrics = R.renderSource(sourceCtx, state);
     uiState.lastMetrics = metrics;
     R.renderDisplay(els.displayCanvas, sourceCanvas, state, uiState, metrics);
+
+    if (state.bgImage && state.bgImage.img) {
+      updateImageMetaLabel(els.bgImageMeta, state.bgImage, metrics.bgImageMetrics);
+    }
+    if (state.testImage && state.testImage.img) {
+      updateImageMetaLabel(els.testImageMeta, state.testImage, metrics.testImageMetrics);
+    }
 
     // Update 1:1 actual size canvas
     var actCtx = els.actualCanvas.getContext('2d');
@@ -249,37 +476,399 @@
     scheduleSizeEstimate();
   }
 
+  function buildFontOptionsHtml(selectedId, includeMixed) {
+    var groups = {};
+    var groupOrder = [];
+    for (var i = 0; i < P.FONTS.length; i++) {
+      var f = P.FONTS[i];
+      var gName = f.group || 'Fonts';
+      if (!groups[gName]) {
+        groups[gName] = [];
+        groupOrder.push(gName);
+      }
+      groups[gName].push(f);
+    }
+
+    var html = '';
+    if (includeMixed) {
+      var mixedSel = selectedId === 'mixed' ? ' selected' : '';
+      html += '<option value="mixed" disabled' + mixedSel + '>— Mixed Fonts —</option>';
+    }
+    for (var g = 0; g < groupOrder.length; g++) {
+      var label = groupOrder[g];
+      var list = groups[label];
+      html += '<optgroup label="' + escapeHtml(label) + '">';
+      for (var j = 0; j < list.length; j++) {
+        var font = list[j];
+        var sel = font.id === selectedId ? ' selected' : '';
+        html += '<option value="' + escapeHtml(font.id) + '"' + sel + '>' + escapeHtml(font.label) + '</option>';
+      }
+      html += '</optgroup>';
+    }
+    return html;
+  }
+
+  function ensureFontLoaded(fontId) {
+    if (!document.fonts || !document.fonts.load) return;
+    var fontObj = P.getFontById(fontId);
+    if (!fontObj) return;
+    var spec = (fontObj.weight || '400') + ' 24px ' + fontObj.css;
+    document.fonts
+      .load(spec)
+      .then(function () {
+        renderAll();
+      })
+      .catch(function () {});
+  }
+
+  function syncGlobalFontSelect() {
+    if (!els.fontSelect) return;
+    if (state.lines.length === 0) {
+      els.fontSelect.value = state.fontId;
+      return;
+    }
+    var firstFont = state.lines[0].fontId || state.fontId;
+    var allSame = true;
+    for (var i = 1; i < state.lines.length; i++) {
+      if ((state.lines[i].fontId || state.fontId) !== firstFont) {
+        allSame = false;
+        break;
+      }
+    }
+    els.fontSelect.value = allSame ? firstFont : 'mixed';
+  }
+
+  function renderLinesEditor() {
+    if (!els.linesStack) return;
+    var len = state.lines.length;
+    var selLineIdx = getSelectedTextIndex();
+
+    if (els.addLineBtn) {
+      els.addLineBtn.disabled = len >= MAX_LINES;
+    }
+    if (els.lineCountHint) {
+      els.lineCountHint.textContent =
+        len + ' of ' + MAX_LINES + ' lines • Press Enter inside a line to split or add below';
+    }
+
+    if (len === 0) {
+      els.linesStack.innerHTML =
+        '<div class="lines-empty-state">No text lines yet. Click <strong>+ Add Text Line</strong> above to add one.</div>';
+      return;
+    }
+
+    var html = '';
+    for (var i = 0; i < len; i++) {
+      var line = state.lines[i];
+      var isSel = state.appMode === 'create' && selLineIdx === i;
+      var upDisabled = i === 0 ? ' disabled' : '';
+      var downDisabled = i === len - 1 ? ' disabled' : '';
+      var dupDisabled = len >= MAX_LINES ? ' disabled' : '';
+      var rot = Math.round(line.rotation || 0);
+      var size = Math.round(line.size || 16);
+
+      html +=
+        '<div class="line-card' +
+        (isSel ? ' is-selected' : '') +
+        '" data-line-card="' +
+        i +
+        '">' +
+        '<div class="line-card-header">' +
+        '<span class="line-num-badge">Line ' +
+        (i + 1) +
+        '</span>' +
+        '<div class="line-card-actions">' +
+        '<button type="button" class="btn btn-outline btn-sm" data-line-move-up="' +
+        i +
+        '" aria-label="Move line ' +
+        (i + 1) +
+        ' up"' +
+        upDisabled +
+        '>&uarr;</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-line-move-down="' +
+        i +
+        '" aria-label="Move line ' +
+        (i + 1) +
+        ' down"' +
+        downDisabled +
+        '>&darr;</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-line-duplicate="' +
+        i +
+        '"' +
+        dupDisabled +
+        '>Duplicate</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-line-reset-transform="' +
+        i +
+        '">Reset Pos/Tilt</button>' +
+        '<button type="button" class="btn btn-danger btn-sm" data-line-delete="' +
+        i +
+        '" aria-label="Delete line ' +
+        (i + 1) +
+        '">Delete</button>' +
+        '</div>' +
+        '</div>' +
+        '<div class="line-card-body">' +
+        '<div class="line-input-row">' +
+        '<input type="text" data-line-text="' +
+        i +
+        '" maxlength="48" value="' +
+        escapeHtml(line.text || '') +
+        '" placeholder="Type marquee line..." aria-label="Line ' +
+        (i + 1) +
+        ' text">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-line-clear="' +
+        i +
+        '" aria-label="Clear line ' +
+        (i + 1) +
+        '">Clear</button>' +
+        '</div>' +
+        '<div class="line-controls-row">' +
+        '<div class="line-font-group">' +
+        '<label>Font</label>' +
+        '<select data-line-font="' +
+        i +
+        '" class="line-font-select" aria-label="Line ' +
+        (i + 1) +
+        ' font">' +
+        buildFontOptionsHtml(line.fontId || state.fontId, false) +
+        '</select>' +
+        '</div>' +
+        '<div class="slider-group">' +
+        '<label>Size: <strong data-line-size-val="' +
+        i +
+        '">' +
+        size +
+        'px</strong> <span class="safe-hint">(14px+)</span></label>' +
+        '<input type="range" data-line-size="' +
+        i +
+        '" min="10" max="48" step="1" value="' +
+        size +
+        '" aria-label="Line ' +
+        (i + 1) +
+        ' size">' +
+        '</div>' +
+        '<div class="slider-group rotate-group">' +
+        '<label>Rotate: <strong data-line-rotate-val="' +
+        i +
+        '">' +
+        rot +
+        '°</strong></label>' +
+        '<input type="range" data-line-rotate="' +
+        i +
+        '" min="-180" max="180" step="1" value="' +
+        rot +
+        '" aria-label="Line ' +
+        (i + 1) +
+        ' rotation">' +
+        '</div>' +
+        '<div class="color-group">' +
+        '<input type="color" data-line-color="' +
+        i +
+        '" value="' +
+        escapeHtml(line.color || '#ffffff') +
+        '" title="Custom color" aria-label="Line ' +
+        (i + 1) +
+        ' color">' +
+        '<div class="swatch-strip">' +
+        buildSwatchButtonsHtml('line', i) +
+        '</div>' +
+        '</div>' +
+        '</div>' +
+        '</div>' +
+        '</div>';
+    }
+    els.linesStack.innerHTML = html;
+  }
+
+  function syncLineCardValues(idx) {
+    if (!els.linesStack || !state.lines[idx]) return;
+    var card = els.linesStack.querySelector('[data-line-card="' + idx + '"]');
+    if (!card) return;
+    var line = state.lines[idx];
+    var textInput = card.querySelector('[data-line-text="' + idx + '"]');
+    var fontSelect = card.querySelector('[data-line-font="' + idx + '"]');
+    var sizeInput = card.querySelector('[data-line-size="' + idx + '"]');
+    var sizeVal = card.querySelector('[data-line-size-val="' + idx + '"]');
+    var rotInput = card.querySelector('[data-line-rotate="' + idx + '"]');
+    var rotVal = card.querySelector('[data-line-rotate-val="' + idx + '"]');
+    var colorInput = card.querySelector('[data-line-color="' + idx + '"]');
+
+    if (textInput && document.activeElement !== textInput) textInput.value = line.text || '';
+    if (fontSelect) fontSelect.value = line.fontId || state.fontId;
+    if (sizeInput) sizeInput.value = String(Math.round(line.size || 16));
+    if (sizeVal) sizeVal.textContent = Math.round(line.size || 16) + 'px';
+    if (rotInput) rotInput.value = String(Math.round(line.rotation || 0));
+    if (rotVal) rotVal.textContent = Math.round(line.rotation || 0) + '°';
+    if (colorInput) colorInput.value = line.color || '#ffffff';
+  }
+
+  function addLine(insertAfterIdx, initialText) {
+    if (state.lines.length >= MAX_LINES) return;
+    var refIdx =
+      typeof insertAfterIdx === 'number' && state.lines[insertAfterIdx]
+        ? insertAfterIdx
+        : state.lines.length - 1;
+    var refLine = refIdx >= 0 ? state.lines[refIdx] : null;
+    var bgLum = A ? A.relativeLuminance(state.bgColor) : 0;
+    var fallbackColor = bgLum > 0.45 ? '#111827' : '#ffffff';
+    var nextColor = refLine ? refLine.color : fallbackColor;
+    var nextSize = refLine ? clamp(Math.round(refLine.size), 14, 22) : 16;
+    var nextOffsetX = refLine ? refLine.offsetX || 0 : 0;
+    var nextFontId = refLine ? refLine.fontId || state.fontId : state.fontId;
+
+    var newLine = {
+      text: typeof initialText === 'string' ? initialText : '',
+      fontId: nextFontId,
+      size: nextSize,
+      color: nextColor,
+      offsetX: nextOffsetX,
+      offsetY: 0,
+      rotation: 0
+    };
+
+    var targetIdx = typeof insertAfterIdx === 'number' ? insertAfterIdx + 1 : state.lines.length;
+    state.lines.splice(targetIdx, 0, newLine);
+    uiState.selection = { type: 'text', index: targetIdx };
+    renderLinesEditor();
+    syncGlobalFontSelect();
+    syncSelectionUI();
+    renderAll();
+
+    if (els.linesStack) {
+      var input = els.linesStack.querySelector('[data-line-text="' + targetIdx + '"]');
+      if (input) {
+        input.focus();
+        if (initialText) input.setSelectionRange(0, 0);
+      }
+    }
+  }
+
+  function duplicateLine(idx) {
+    if (state.lines.length >= MAX_LINES || !state.lines[idx]) return;
+    var src = state.lines[idx];
+    var copy = {
+      text: src.text || '',
+      fontId: src.fontId || state.fontId,
+      size: src.size,
+      color: src.color,
+      offsetX: src.offsetX || 0,
+      offsetY: 0,
+      rotation: src.rotation || 0
+    };
+    state.lines.splice(idx + 1, 0, copy);
+    uiState.selection = { type: 'text', index: idx + 1 };
+    renderLinesEditor();
+    syncGlobalFontSelect();
+    syncSelectionUI();
+    renderAll();
+
+    if (els.linesStack) {
+      var input = els.linesStack.querySelector('[data-line-text="' + (idx + 1) + '"]');
+      if (input) input.focus();
+    }
+  }
+
+  function moveLine(idx, delta) {
+    var target = idx + delta;
+    if (idx < 0 || idx >= state.lines.length || target < 0 || target >= state.lines.length) return;
+    var tmp = state.lines[idx];
+    state.lines[idx] = state.lines[target];
+    state.lines[target] = tmp;
+
+    if (uiState.selection && uiState.selection.type === 'text') {
+      if (uiState.selection.index === idx) uiState.selection.index = target;
+      else if (uiState.selection.index === target) uiState.selection.index = idx;
+    }
+
+    renderLinesEditor();
+    syncGlobalFontSelect();
+    syncSelectionUI();
+    renderAll();
+  }
+
+  function removeLine(idx) {
+    if (idx < 0 || idx >= state.lines.length) return;
+    state.lines.splice(idx, 1);
+    if (uiState.selection && uiState.selection.type === 'text') {
+      if (uiState.selection.index === idx) {
+        uiState.selection = null;
+      } else if (uiState.selection.index > idx) {
+        uiState.selection.index -= 1;
+      }
+    }
+    renderLinesEditor();
+    syncGlobalFontSelect();
+    syncSelectionUI();
+    renderAll();
+  }
+
   function syncSelectionUI() {
     var selOv = getSelectedOverlay();
     var selLineIdx = getSelectedTextIndex();
 
     // Highlight matching line cards in Text tab
-    for (var l = 0; l < 3; l++) {
-      els.lineCard[l].classList.toggle('is-selected', state.appMode === 'create' && selLineIdx === l);
+    if (els.linesStack) {
+      var cards = els.linesStack.querySelectorAll('[data-line-card]');
+      for (var l = 0; l < cards.length; l++) {
+        var cIdx = Number(cards[l].getAttribute('data-line-card'));
+        cards[l].classList.toggle('is-selected', state.appMode === 'create' && selLineIdx === cIdx);
+      }
     }
 
     // Quick selection bar right below bezel
     if (state.appMode !== 'create' || (!selOv && selLineIdx === null)) {
       els.quickSelectionBar.hidden = true;
+    } else if (selOv && selOv.kind === 'qr') {
+      els.quickSelectionBar.hidden = false;
+      els.quickSelLabel.textContent =
+        'Pixel-Locked QR (' +
+        selOv.qrScale +
+        '×' +
+        selOv.qrScale +
+        ' px/sq • ' +
+        selOv.size +
+        '×' +
+        selOv.size +
+        ')';
+      els.quickSizeWrap.hidden = true;
+      els.quickRotateWrap.hidden = true;
+      els.quickEditQrBtn.hidden = false;
+      els.quickLayerWrap.hidden = false;
+      els.quickDeleteBtn.hidden = false;
+      els.quickCenterBtn.textContent = 'Center';
     } else if (selOv) {
       els.quickSelectionBar.hidden = false;
       els.quickSelLabel.textContent = 'Sticker: ' + selOv.name;
       els.quickSizeWrap.hidden = false;
+      els.quickSize.min = '12';
+      els.quickSize.max = '260';
+      els.quickRotateWrap.hidden = false;
+      els.quickEditQrBtn.hidden = true;
       els.quickLayerWrap.hidden = false;
+      els.quickDeleteBtn.hidden = false;
       els.quickSize.value = String(Math.round(selOv.size));
       els.quickSizeVal.textContent = Math.round(selOv.size) + 'px';
       els.quickRotate.value = String(Math.round(selOv.rotation || 0));
       els.quickRotateVal.textContent = Math.round(selOv.rotation || 0) + '°';
       els.quickCenterBtn.textContent = 'Center';
-    } else if (selLineIdx !== null) {
+    } else if (selLineIdx !== null && state.lines[selLineIdx]) {
       var line = state.lines[selLineIdx];
       els.quickSelectionBar.hidden = false;
       els.quickSelLabel.textContent = 'Text: Line ' + (selLineIdx + 1);
-      els.quickSizeWrap.hidden = true;
+      els.quickSizeWrap.hidden = false;
+      els.quickSize.min = '10';
+      els.quickSize.max = '48';
+      els.quickSize.value = String(Math.round(line.size || 16));
+      els.quickSizeVal.textContent = Math.round(line.size || 16) + 'px';
+      els.quickRotateWrap.hidden = false;
+      els.quickEditQrBtn.hidden = true;
       els.quickLayerWrap.hidden = true;
+      els.quickDeleteBtn.hidden = false;
       els.quickRotate.value = String(Math.round(line.rotation || 0));
       els.quickRotateVal.textContent = Math.round(line.rotation || 0) + '°';
       els.quickCenterBtn.textContent = 'Reset Pos';
+    } else {
+      els.quickSelectionBar.hidden = true;
     }
 
     syncOverlayListUI();
@@ -337,7 +926,10 @@
     els.activeOverlaysList.innerHTML = html;
 
     if (selOv) {
+      var isQrSel = selOv.kind === 'qr';
       els.selectedOverlayControls.hidden = false;
+      els.ovQrLockNote.hidden = !isQrSel;
+      els.ovTransformRow.hidden = isQrSel;
       els.ovSize.value = String(Math.round(selOv.size));
       els.ovSizeVal.textContent = Math.round(selOv.size) + ' px';
       els.ovRotate.value = String(Math.round(selOv.rotation || 0));
@@ -381,7 +973,7 @@
     }
 
     // Text tab controls
-    els.fontSelect.value = state.fontId;
+    syncGlobalFontSelect();
     var alignBtns = document.querySelectorAll('[data-align]');
     for (var a = 0; a < alignBtns.length; a++) {
       var aMatch = alignBtns[a].getAttribute('data-align') === state.align;
@@ -391,15 +983,7 @@
     els.autoFit.checked = state.autoFit;
     els.textOutline.checked = state.textOutline;
 
-    for (var l = 0; l < 3; l++) {
-      var line = state.lines[l];
-      els.lineText[l].value = line.text;
-      els.lineSize[l].value = String(line.size);
-      els.lineSizeVal[l].textContent = line.size + 'px';
-      els.lineRotate[l].value = String(Math.round(line.rotation || 0));
-      els.lineRotateVal[l].textContent = Math.round(line.rotation || 0) + '°';
-      els.lineColor[l].value = line.color;
-    }
+    renderLinesEditor();
 
     // Background tab controls
     els.bgStyle.value = state.bgStyle;
@@ -414,9 +998,19 @@
 
     var hasBgImg = Boolean(state.bgImage && state.bgImage.img);
     els.bgImageControls.hidden = !hasBgImg;
+    if (hasBgImg) {
+      updateImageMetaLabel(els.bgImageMeta, state.bgImage, uiState.lastMetrics && uiState.lastMetrics.bgImageMetrics);
+    }
     els.bgFit.value = state.bgFit;
+    els.bgUnlockAspect.checked = Boolean(state.bgUnlockAspect);
+    els.bgZoomWrap.hidden = Boolean(state.bgUnlockAspect);
+    els.bgScaleXyWrap.hidden = !state.bgUnlockAspect;
     els.bgZoom.value = String(state.bgZoom);
     els.bgZoomVal.textContent = Math.round(state.bgZoom * 100) + '%';
+    els.bgScaleX.value = String(state.bgScaleX);
+    els.bgScaleXVal.textContent = Math.round(state.bgScaleX * 100) + '%';
+    els.bgScaleY.value = String(state.bgScaleY);
+    els.bgScaleYVal.textContent = Math.round(state.bgScaleY * 100) + '%';
     els.bgOffsetX.value = String(state.bgOffsetX);
     els.bgOffsetXVal.textContent = Math.round(state.bgOffsetX) + ' px';
     els.bgOffsetY.value = String(state.bgOffsetY);
@@ -428,13 +1022,19 @@
     var hasTestImg = Boolean(state.testImage && state.testImage.img);
     els.testImageControls.hidden = !hasTestImg;
     if (hasTestImg) {
-      var ti = state.testImage.img;
-      els.testImageMeta.textContent =
-        state.testImage.name + ' • ' + (ti.naturalWidth || ti.width) + ' × ' + (ti.naturalHeight || ti.height) + ' px';
+      updateImageMetaLabel(els.testImageMeta, state.testImage, uiState.lastMetrics && uiState.lastMetrics.testImageMetrics);
     }
     els.testFit.value = state.testFit;
+    els.testBgColor.value = state.testBgColor || '#000000';
+    els.testUnlockAspect.checked = Boolean(state.testUnlockAspect);
+    els.testZoomWrap.hidden = Boolean(state.testUnlockAspect);
+    els.testScaleXyWrap.hidden = !state.testUnlockAspect;
     els.testZoom.value = String(state.testZoom);
     els.testZoomVal.textContent = Math.round(state.testZoom * 100) + '%';
+    els.testScaleX.value = String(state.testScaleX);
+    els.testScaleXVal.textContent = Math.round(state.testScaleX * 100) + '%';
+    els.testScaleY.value = String(state.testScaleY);
+    els.testScaleYVal.textContent = Math.round(state.testScaleY * 100) + '%';
     els.testOffsetX.value = String(state.testOffsetX);
     els.testOffsetXVal.textContent = Math.round(state.testOffsetX) + ' px';
     els.testOffsetY.value = String(state.testOffsetY);
@@ -444,7 +1044,94 @@
     els.jpgQuality.value = String(Math.round(state.jpgQuality * 100));
     els.jpgQualityVal.textContent = Math.round(state.jpgQuality * 100) + '%';
 
+    syncQrPanelUI();
     syncSelectionUI();
+  }
+
+  function syncQrPanelUI() {
+    if (!els.qrUrl) return;
+    var draft = state.qrDraft;
+    if (document.activeElement !== els.qrUrl) {
+      els.qrUrl.value = draft.url;
+    }
+    els.qrUppercase.checked = Boolean(draft.uppercase);
+    els.qrEcc.value = draft.ecc;
+
+    var scaleBtns = document.querySelectorAll('[data-qr-scale]');
+    for (var s = 0; s < scaleBtns.length; s++) {
+      var sv = scaleBtns[s].getAttribute('data-qr-scale');
+      var sActive = sv === String(draft.scaleMode);
+      scaleBtns[s].classList.toggle('is-active', sActive);
+      scaleBtns[s].setAttribute('aria-pressed', sActive ? 'true' : 'false');
+    }
+
+    var qzBtns = document.querySelectorAll('[data-qr-qz]');
+    for (var q = 0; q < qzBtns.length; q++) {
+      var qv = qzBtns[q].getAttribute('data-qr-qz');
+      var qActive = qv === String(draft.quietZoneMode);
+      qzBtns[q].classList.toggle('is-active', qActive);
+      qzBtns[q].setAttribute('aria-pressed', qActive ? 'true' : 'false');
+    }
+
+    var activeQr = getQrOverlay();
+    els.qrRemoveBtn.hidden = !activeQr;
+    els.qrAddBtn.textContent = activeQr ? 'Update QR on Slide' : 'Add Pixel-Locked QR to Slide';
+
+    var data = buildQrOverlayData(draft);
+    if (!data || data.error) {
+      els.qrStatusPill.className = 'qr-status-pill is-error';
+      els.qrStatusPill.textContent = 'Cannot Fit';
+      els.qrVersionMeta.textContent = '—';
+      els.qrDimensionsText.textContent = (data && data.error) || 'Enter a valid link.';
+      els.qrPayloadPreview.textContent = '';
+      els.qrAddBtn.disabled = true;
+      els.qrPlaceLeftBtn.disabled = true;
+      els.qrPlaceRightBtn.disabled = true;
+      els.qrPlaceCenterBtn.disabled = true;
+      for (var ds = 0; ds < scaleBtns.length; ds++) {
+        scaleBtns[ds].disabled = false;
+      }
+      return;
+    }
+
+    var enc = data.encoded;
+    var layout = data.layout;
+    els.qrAddBtn.disabled = false;
+    els.qrPlaceLeftBtn.disabled = false;
+    els.qrPlaceRightBtn.disabled = false;
+    els.qrPlaceCenterBtn.disabled = false;
+
+    for (var sb = 0; sb < scaleBtns.length; sb++) {
+      var val = scaleBtns[sb].getAttribute('data-qr-scale');
+      if (val === '3') scaleBtns[sb].disabled = !layout.fitsScale3;
+      else if (val === '2') scaleBtns[sb].disabled = !layout.fitsScale2;
+      else scaleBtns[sb].disabled = false;
+    }
+
+    if (layout.scale >= 3) {
+      els.qrStatusPill.className = 'qr-status-pill is-ok';
+      els.qrStatusPill.textContent = 'Optimal 3×3 LEDs/sq';
+    } else if (layout.scale === 2) {
+      els.qrStatusPill.className = 'qr-status-pill is-warn';
+      els.qrStatusPill.textContent = 'Compact 2×2 LEDs/sq';
+    } else {
+      els.qrStatusPill.className = 'qr-status-pill is-error';
+      els.qrStatusPill.textContent = 'Too Dense 1×1 LED';
+    }
+
+    els.qrVersionMeta.textContent = 'V' + enc.version + ' • ' + enc.size + '×' + enc.size + ' • ' + enc.mode;
+    els.qrDimensionsText.textContent =
+      layout.totalPx +
+      ' × ' +
+      layout.totalPx +
+      ' px • ' +
+      layout.scale +
+      '×' +
+      layout.scale +
+      ' px/square • ' +
+      layout.quietZone +
+      '-sq white border • 0° locked';
+    els.qrPayloadPreview.textContent = 'Encoded (' + data.payload.length + ' chars): ' + data.payload;
   }
 
   function setAppMode(mode) {
@@ -520,21 +1207,29 @@
     state.textOutline = c.textOutline;
     state.autoFit = c.autoFit;
 
-    for (var i = 0; i < 3; i++) {
-      state.lines[i] = {
-        text: c.lines[i].text,
-        size: c.lines[i].size,
-        color: c.lines[i].color,
-        offsetX: c.lines[i].offsetX || 0,
-        offsetY: c.lines[i].offsetY || 0,
-        rotation: c.lines[i].rotation || 0
-      };
+    state.lines = [];
+    for (var i = 0; i < c.lines.length; i++) {
+      var presetLine = c.lines[i];
+      if (!presetLine || !(presetLine.text || '').trim()) continue;
+      state.lines.push({
+        text: presetLine.text,
+        fontId: presetLine.fontId || c.fontId,
+        size: presetLine.size,
+        color: presetLine.color,
+        offsetX: presetLine.offsetX || 0,
+        offsetY: presetLine.offsetY || 0,
+        rotation: presetLine.rotation || 0
+      });
     }
+    ensureFontLoaded(c.fontId);
 
     if (clearUploads) {
       state.bgImage = null;
       state.bgFit = 'cover';
       state.bgZoom = 1;
+      state.bgUnlockAspect = false;
+      state.bgScaleX = 1;
+      state.bgScaleY = 1;
       state.bgOffsetX = 0;
       state.bgOffsetY = 0;
       state.bgScrim = 0.35;
@@ -542,6 +1237,9 @@
 
     state.overlays = [];
     uiState.selection = null;
+    if (clearUploads) {
+      state.jpgQuality = 0.95;
+    }
 
     syncControlsFromState();
     renderAll();
@@ -560,6 +1258,18 @@
           false
         );
       }
+    }
+
+    if (c.starterQr) {
+      state.qrDraft = {
+        url: c.starterQr.url,
+        uppercase: c.starterQr.uppercase !== false,
+        scaleMode: c.starterQr.scaleMode || 'auto',
+        quietZoneMode: c.starterQr.quietZoneMode || 'auto',
+        ecc: c.starterQr.ecc || 'L'
+      };
+      upsertQrOverlay(false, c.starterQr.snap || 'right', false);
+      syncControlsFromState();
     }
   }
 
@@ -607,12 +1317,8 @@
   }
 
   function populateStaticLists() {
-    // Font select
-    var fontHtml = '';
-    for (var f = 0; f < P.FONTS.length; f++) {
-      fontHtml += '<option value="' + escapeHtml(P.FONTS[f].id) + '">' + escapeHtml(P.FONTS[f].label) + '</option>';
-    }
-    els.fontSelect.innerHTML = fontHtml;
+    // Font select (with optgroups + mixed indicator)
+    els.fontSelect.innerHTML = buildFontOptionsHtml(state.fontId, true);
 
     // Presets grid
     var pHtml = '';
@@ -642,12 +1348,7 @@
     }
     els.presetsGrid.innerHTML = pHtml;
 
-    // Swatch strips for 3 text lines & background
-    var swatchStrips = document.querySelectorAll('[data-line-swatches]');
-    for (var s = 0; s < swatchStrips.length; s++) {
-      var lineIdx = swatchStrips[s].getAttribute('data-line-swatches');
-      swatchStrips[s].innerHTML = buildSwatchButtonsHtml('line', lineIdx);
-    }
+    // Swatch strips for background & motif
     els.bgSwatches.innerHTML = buildSwatchButtonsHtml('bg', '0');
     els.bgSwatches2.innerHTML = buildSwatchButtonsHtml('bg2', '0');
     els.motifSwatches.innerHTML = buildSwatchButtonsHtml('motif', '0');
@@ -679,6 +1380,9 @@
           state.bgImage = { name: file.name, img: img, dataUrl: dataUrl };
           state.bgFit = 'cover';
           state.bgZoom = 1;
+          state.bgUnlockAspect = false;
+          state.bgScaleX = 1;
+          state.bgScaleY = 1;
           state.bgOffsetX = 0;
           state.bgOffsetY = 0;
           syncControlsFromState();
@@ -698,6 +1402,9 @@
           state.testImage = { name: file.name, img: img, dataUrl: dataUrl };
           state.testFit = 'contain';
           state.testZoom = 1;
+          state.testUnlockAspect = false;
+          state.testScaleX = 1;
+          state.testScaleY = 1;
           state.testOffsetX = 0;
           state.testOffsetY = 0;
           syncControlsFromState();
@@ -799,6 +1506,10 @@
   function hitTestRotationHandle(pt) {
     var box = getSelectionBox();
     if (!box) return null;
+    if (box.target && box.target.type === 'overlay') {
+      var selOv = getOverlayById(box.target.id);
+      if (selOv && selOv.kind === 'qr') return null;
+    }
     var handle = R.getRotationHandlePos(box.cx, box.cy, box.w, box.h, box.rotation);
     var dx = pt.x - handle.x;
     var dy = pt.y - handle.y;
@@ -815,7 +1526,7 @@
 
   function hitTestResizeHandle(pt) {
     var ov = getSelectedOverlay();
-    if (!ov || !ov._drawW || !ov._drawH) return null;
+    if (!ov || ov.kind === 'qr' || !ov._drawW || !ov._drawH) return null;
     var handle = R.getResizeHandlePos(ov.x, ov.y, ov._drawW, ov._drawH, ov.rotation || 0);
     var dx = pt.x - handle.x;
     var dy = pt.y - handle.y;
@@ -881,7 +1592,7 @@
       var pt = canvasPointToLogical(ev);
 
       if (state.appMode === 'test') {
-        if (state.testImage && state.testImage.img && state.testFit !== 'stretch') {
+        if (state.testImage && state.testImage.img) {
           uiState.drag = {
             type: 'test-bg',
             startX: pt.x,
@@ -984,7 +1695,7 @@
         syncSelectionUI();
         renderAll();
       }
-      if (state.bgImage && state.bgImage.img && state.bgFit !== 'stretch') {
+      if (state.bgImage && state.bgImage.img) {
         uiState.drag = {
           type: 'bg',
           startX: pt.x,
@@ -1001,8 +1712,7 @@
 
       if (!uiState.drag) {
         if (state.appMode === 'test') {
-          canvas.style.cursor =
-            state.testImage && state.testImage.img && state.testFit !== 'stretch' ? 'grab' : 'default';
+          canvas.style.cursor = state.testImage && state.testImage.img ? 'grab' : 'default';
           return;
         }
         if (hitTestRotationHandle(pt)) {
@@ -1011,7 +1721,7 @@
           canvas.style.cursor = 'nwse-resize';
         } else if (hitTestOverlaysByLayer(pt, false) || hitTestTextLine(pt) || hitTestOverlaysByLayer(pt, true)) {
           canvas.style.cursor = 'move';
-        } else if (state.bgImage && state.bgImage.img && state.bgFit !== 'stretch') {
+        } else if (state.bgImage && state.bgImage.img) {
           canvas.style.cursor = 'grab';
         } else {
           canvas.style.cursor = 'default';
@@ -1038,9 +1748,10 @@
           if (ovRot) ovRot.rotation = deg;
         } else if (uiState.drag.target.type === 'text') {
           var lIdx = uiState.drag.target.index;
-          state.lines[lIdx].rotation = deg;
-          els.lineRotate[lIdx].value = String(deg);
-          els.lineRotateVal[lIdx].textContent = deg + '°';
+          if (state.lines[lIdx]) {
+            state.lines[lIdx].rotation = deg;
+            syncLineCardValues(lIdx);
+          }
         }
         syncSelectionUI();
         renderAll();
@@ -1052,8 +1763,15 @@
         var nextY = clamp(pt.y - uiState.drag.offsetY, 0, P.HEIGHT);
         if (Math.abs(nextX - 128) <= 3) nextX = 128;
         if (Math.abs(nextY - 48) <= 3) nextY = 48;
-        ov.x = Math.round(nextX);
-        ov.y = Math.round(nextY);
+        if (ov.kind === 'qr') {
+          var totalPx = ov._drawW || (ov.qrModules + ov.qrQuietZone * 2) * ov.qrScale;
+          var snapped = clampQrCenter(nextX, nextY, totalPx);
+          ov.x = snapped.x;
+          ov.y = snapped.y;
+        } else {
+          ov.x = Math.round(nextX);
+          ov.y = Math.round(nextY);
+        }
         syncSelectionUI();
         renderAll();
       } else if (uiState.drag.type === 'text') {
@@ -1073,8 +1791,8 @@
         renderAll();
       } else if (uiState.drag.type === 'bg') {
         canvas.style.cursor = 'grabbing';
-        state.bgOffsetX = clamp(Math.round(uiState.drag.origOffsetX + (pt.x - uiState.drag.startX)), -160, 160);
-        state.bgOffsetY = clamp(Math.round(uiState.drag.origOffsetY + (pt.y - uiState.drag.startY)), -100, 100);
+        state.bgOffsetX = clamp(Math.round(uiState.drag.origOffsetX + (pt.x - uiState.drag.startX)), -220, 220);
+        state.bgOffsetY = clamp(Math.round(uiState.drag.origOffsetY + (pt.y - uiState.drag.startY)), -120, 120);
         els.bgOffsetX.value = String(state.bgOffsetX);
         els.bgOffsetXVal.textContent = state.bgOffsetX + ' px';
         els.bgOffsetY.value = String(state.bgOffsetY);
@@ -1082,8 +1800,8 @@
         renderAll();
       } else if (uiState.drag.type === 'test-bg') {
         canvas.style.cursor = 'grabbing';
-        state.testOffsetX = clamp(Math.round(uiState.drag.origOffsetX + (pt.x - uiState.drag.startX)), -160, 160);
-        state.testOffsetY = clamp(Math.round(uiState.drag.origOffsetY + (pt.y - uiState.drag.startY)), -100, 100);
+        state.testOffsetX = clamp(Math.round(uiState.drag.origOffsetX + (pt.x - uiState.drag.startX)), -220, 220);
+        state.testOffsetY = clamp(Math.round(uiState.drag.origOffsetY + (pt.y - uiState.drag.startY)), -120, 120);
         els.testOffsetX.value = String(state.testOffsetX);
         els.testOffsetXVal.textContent = state.testOffsetX + ' px';
         els.testOffsetY.value = String(state.testOffsetY);
@@ -1124,21 +1842,43 @@
       var handled = true;
 
       if (selOv) {
-        if (ev.key === 'ArrowLeft') selOv.x = clamp(selOv.x - step, 0, P.WIDTH);
-        else if (ev.key === 'ArrowRight') selOv.x = clamp(selOv.x + step, 0, P.WIDTH);
-        else if (ev.key === 'ArrowUp') selOv.y = clamp(selOv.y - step, 0, P.HEIGHT);
-        else if (ev.key === 'ArrowDown') selOv.y = clamp(selOv.y + step, 0, P.HEIGHT);
-        else if (ev.key === '[') selOv.rotation = normalizeAngle((selOv.rotation || 0) - rotStep);
-        else if (ev.key === ']') selOv.rotation = normalizeAngle((selOv.rotation || 0) + rotStep);
-        else if (ev.key === '0') selOv.rotation = 0;
-        else if (ev.key === 'Delete' || ev.key === 'Backspace') {
-          removeOverlay(selOv.id);
-          ev.preventDefault();
-          return;
+        if (selOv.kind === 'qr') {
+          var qrTotal = selOv._drawW || (selOv.qrModules + selOv.qrQuietZone * 2) * selOv.qrScale;
+          var qrCurLeft = typeof selOv._left === 'number' ? selOv._left : Math.round(selOv.x - qrTotal / 2);
+          var qrCurTop = typeof selOv._top === 'number' ? selOv._top : Math.round(selOv.y - qrTotal / 2);
+          if (ev.key === 'ArrowLeft') qrCurLeft -= step;
+          else if (ev.key === 'ArrowRight') qrCurLeft += step;
+          else if (ev.key === 'ArrowUp') qrCurTop -= step;
+          else if (ev.key === 'ArrowDown') qrCurTop += step;
+          else if (ev.key === 'Delete' || ev.key === 'Backspace') {
+            removeOverlay(selOv.id);
+            ev.preventDefault();
+            return;
+          } else {
+            handled = false;
+          }
+          if (handled) {
+            var qrClamped = clampQrCenter(qrCurLeft + qrTotal / 2, qrCurTop + qrTotal / 2, qrTotal);
+            selOv.x = qrClamped.x;
+            selOv.y = qrClamped.y;
+          }
         } else {
-          handled = false;
+          if (ev.key === 'ArrowLeft') selOv.x = clamp(selOv.x - step, 0, P.WIDTH);
+          else if (ev.key === 'ArrowRight') selOv.x = clamp(selOv.x + step, 0, P.WIDTH);
+          else if (ev.key === 'ArrowUp') selOv.y = clamp(selOv.y - step, 0, P.HEIGHT);
+          else if (ev.key === 'ArrowDown') selOv.y = clamp(selOv.y + step, 0, P.HEIGHT);
+          else if (ev.key === '[') selOv.rotation = normalizeAngle((selOv.rotation || 0) - rotStep);
+          else if (ev.key === ']') selOv.rotation = normalizeAngle((selOv.rotation || 0) + rotStep);
+          else if (ev.key === '0') selOv.rotation = 0;
+          else if (ev.key === 'Delete' || ev.key === 'Backspace') {
+            removeOverlay(selOv.id);
+            ev.preventDefault();
+            return;
+          } else {
+            handled = false;
+          }
         }
-      } else if (selLineIdx !== null) {
+      } else if (selLineIdx !== null && state.lines[selLineIdx]) {
         var line = state.lines[selLineIdx];
         if (ev.key === 'ArrowLeft') line.offsetX = clamp((line.offsetX || 0) - step, -120, 120);
         else if (ev.key === 'ArrowRight') line.offsetX = clamp((line.offsetX || 0) + step, -120, 120);
@@ -1147,11 +1887,14 @@
         else if (ev.key === '[') line.rotation = normalizeAngle((line.rotation || 0) - rotStep);
         else if (ev.key === ']') line.rotation = normalizeAngle((line.rotation || 0) + rotStep);
         else if (ev.key === '0') line.rotation = 0;
-        else handled = false;
+        else if (ev.key === 'Delete' || ev.key === 'Backspace') {
+          removeLine(selLineIdx);
+          ev.preventDefault();
+          return;
+        } else handled = false;
 
         if (handled) {
-          els.lineRotate[selLineIdx].value = String(line.rotation || 0);
-          els.lineRotateVal[selLineIdx].textContent = (line.rotation || 0) + '°';
+          syncLineCardValues(selLineIdx);
         }
       } else {
         handled = false;
@@ -1175,6 +1918,7 @@
         : null;
     }
     syncSelectionUI();
+    syncQrPanelUI();
     renderAll();
   }
 
@@ -1230,11 +1974,39 @@
         return;
       }
 
+      var moveUpBtn = ev.target.closest('[data-line-move-up]');
+      if (moveUpBtn && !moveUpBtn.disabled) {
+        moveLine(Number(moveUpBtn.getAttribute('data-line-move-up')), -1);
+        return;
+      }
+
+      var moveDownBtn = ev.target.closest('[data-line-move-down]');
+      if (moveDownBtn && !moveDownBtn.disabled) {
+        moveLine(Number(moveDownBtn.getAttribute('data-line-move-down')), 1);
+        return;
+      }
+
+      var dupLineBtn = ev.target.closest('[data-line-duplicate]');
+      if (dupLineBtn && !dupLineBtn.disabled) {
+        duplicateLine(Number(dupLineBtn.getAttribute('data-line-duplicate')));
+        return;
+      }
+
+      var delLineBtn = ev.target.closest('[data-line-delete]');
+      if (delLineBtn) {
+        removeLine(Number(delLineBtn.getAttribute('data-line-delete')));
+        return;
+      }
+
       var clearBtn = ev.target.closest('[data-line-clear]');
       if (clearBtn) {
         var idx = Number(clearBtn.getAttribute('data-line-clear'));
-        state.lines[idx].text = '';
-        els.lineText[idx].value = '';
+        if (state.lines[idx]) {
+          state.lines[idx].text = '';
+          syncLineCardValues(idx);
+          var clearedInput = els.linesStack ? els.linesStack.querySelector('[data-line-text="' + idx + '"]') : null;
+          if (clearedInput) clearedInput.value = '';
+        }
         if (uiState.selection && uiState.selection.type === 'text' && uiState.selection.index === idx) {
           uiState.selection = null;
         }
@@ -1246,11 +2018,12 @@
       var resetLineBtn = ev.target.closest('[data-line-reset-transform]');
       if (resetLineBtn) {
         var rIdx = Number(resetLineBtn.getAttribute('data-line-reset-transform'));
-        state.lines[rIdx].offsetX = 0;
-        state.lines[rIdx].offsetY = 0;
-        state.lines[rIdx].rotation = 0;
-        els.lineRotate[rIdx].value = '0';
-        els.lineRotateVal[rIdx].textContent = '0°';
+        if (state.lines[rIdx]) {
+          state.lines[rIdx].offsetX = 0;
+          state.lines[rIdx].offsetY = 0;
+          state.lines[rIdx].rotation = 0;
+          syncLineCardValues(rIdx);
+        }
         syncSelectionUI();
         renderAll();
         return;
@@ -1262,8 +2035,10 @@
         var colorHex = swBtn.getAttribute('data-swatch-color');
         if (targetType === 'line') {
           var lIdx = Number(swBtn.getAttribute('data-swatch-index'));
-          state.lines[lIdx].color = colorHex;
-          els.lineColor[lIdx].value = colorHex;
+          if (state.lines[lIdx]) {
+            state.lines[lIdx].color = colorHex;
+            syncLineCardValues(lIdx);
+          }
         } else if (targetType === 'bg') {
           state.bgColor = colorHex;
           els.bgColor.value = colorHex;
@@ -1307,11 +2082,60 @@
         var sel = getSelectedOverlay();
         if (!sel) return;
         var dir = nudgeBtn.getAttribute('data-nudge');
-        if (dir === 'left') sel.x = clamp(sel.x - 2, 0, P.WIDTH);
-        else if (dir === 'right') sel.x = clamp(sel.x + 2, 0, P.WIDTH);
-        else if (dir === 'up') sel.y = clamp(sel.y - 2, 0, P.HEIGHT);
-        else if (dir === 'down') sel.y = clamp(sel.y + 2, 0, P.HEIGHT);
+        var step = sel.kind === 'qr' ? 1 : 2;
+        var nx = sel.x;
+        var ny = sel.y;
+        if (dir === 'left') nx -= step;
+        else if (dir === 'right') nx += step;
+        else if (dir === 'up') ny -= step;
+        else if (dir === 'down') ny += step;
+
+        if (sel.kind === 'qr') {
+          var qTotal = sel._drawW || (sel.qrModules + sel.qrQuietZone * 2) * sel.qrScale;
+          var qPos = clampQrCenter(nx, ny, qTotal);
+          sel.x = qPos.x;
+          sel.y = qPos.y;
+        } else {
+          sel.x = clamp(nx, 0, P.WIDTH);
+          sel.y = clamp(ny, 0, P.HEIGHT);
+        }
         syncSelectionUI();
+        renderAll();
+        return;
+      }
+
+      var qrScaleBtn = ev.target.closest('[data-qr-scale]');
+      if (qrScaleBtn && !qrScaleBtn.disabled) {
+        state.qrDraft.scaleMode = qrScaleBtn.getAttribute('data-qr-scale');
+        if (getQrOverlay()) upsertQrOverlay(false, null, false);
+        else syncQrPanelUI();
+        return;
+      }
+
+      var qrQzBtn = ev.target.closest('[data-qr-qz]');
+      if (qrQzBtn) {
+        state.qrDraft.quietZoneMode = qrQzBtn.getAttribute('data-qr-qz');
+        if (getQrOverlay()) upsertQrOverlay(false, null, false);
+        else syncQrPanelUI();
+        return;
+      }
+
+      var bgQuickBtn = ev.target.closest('[data-bg-quick]');
+      if (bgQuickBtn) {
+        applyQuickImageResize('bg', bgQuickBtn.getAttribute('data-bg-quick'));
+        return;
+      }
+
+      var testQuickBtn = ev.target.closest('[data-test-quick]');
+      if (testQuickBtn) {
+        applyQuickImageResize('test', testQuickBtn.getAttribute('data-test-quick'));
+        return;
+      }
+
+      var testBgFillBtn = ev.target.closest('[data-test-bg-color]');
+      if (testBgFillBtn) {
+        state.testBgColor = testBgFillBtn.getAttribute('data-test-bg-color');
+        els.testBgColor.value = state.testBgColor;
         renderAll();
       }
     });
@@ -1323,8 +2147,15 @@
     // Quick selection bar controls
     els.quickSize.addEventListener('input', function () {
       var sel = getSelectedOverlay();
-      if (!sel) return;
-      sel.size = Number(els.quickSize.value);
+      var selLineIdx = getSelectedTextIndex();
+      if (sel) {
+        sel.size = Number(els.quickSize.value);
+      } else if (selLineIdx !== null && state.lines[selLineIdx]) {
+        state.lines[selLineIdx].size = Number(els.quickSize.value);
+        syncLineCardValues(selLineIdx);
+      } else {
+        return;
+      }
       syncSelectionUI();
       renderAll();
     });
@@ -1335,10 +2166,9 @@
       var selLineIdx = getSelectedTextIndex();
       if (selOv) {
         selOv.rotation = deg;
-      } else if (selLineIdx !== null) {
+      } else if (selLineIdx !== null && state.lines[selLineIdx]) {
         state.lines[selLineIdx].rotation = deg;
-        els.lineRotate[selLineIdx].value = String(deg);
-        els.lineRotateVal[selLineIdx].textContent = deg + '°';
+        syncLineCardValues(selLineIdx);
       }
       syncSelectionUI();
       renderAll();
@@ -1349,10 +2179,9 @@
       var selLineIdx = getSelectedTextIndex();
       if (selOv) {
         selOv.rotation = 0;
-      } else if (selLineIdx !== null) {
+      } else if (selLineIdx !== null && state.lines[selLineIdx]) {
         state.lines[selLineIdx].rotation = 0;
-        els.lineRotate[selLineIdx].value = '0';
-        els.lineRotateVal[selLineIdx].textContent = '0°';
+        syncLineCardValues(selLineIdx);
       }
       syncSelectionUI();
       renderAll();
@@ -1362,14 +2191,23 @@
       var selOv = getSelectedOverlay();
       var selLineIdx = getSelectedTextIndex();
       if (selOv) {
-        selOv.x = 128;
-        selOv.y = 48;
+        if (selOv.kind === 'qr') {
+          placeQrWithTextShift(selOv, 'center', false);
+        } else {
+          selOv.x = 128;
+          selOv.y = 48;
+        }
       } else if (selLineIdx !== null) {
         state.lines[selLineIdx].offsetX = 0;
         state.lines[selLineIdx].offsetY = 0;
       }
       syncSelectionUI();
       renderAll();
+    });
+
+    els.quickEditQrBtn.addEventListener('click', function () {
+      switchTab('tab-qr');
+      if (els.qrUrl) els.qrUrl.focus();
     });
 
     els.quickFrontBtn.addEventListener('click', function () {
@@ -1384,7 +2222,12 @@
 
     els.quickDeleteBtn.addEventListener('click', function () {
       var sel = getSelectedOverlay();
-      if (sel) removeOverlay(sel.id);
+      var selLineIdx = getSelectedTextIndex();
+      if (sel) {
+        removeOverlay(sel.id);
+      } else if (selLineIdx !== null) {
+        removeLine(selLineIdx);
+      }
     });
 
     els.quickDeselectBtn.addEventListener('click', function () {
@@ -1395,7 +2238,14 @@
 
     // Text inputs
     els.fontSelect.addEventListener('change', function () {
-      state.fontId = els.fontSelect.value;
+      var val = els.fontSelect.value;
+      if (val === 'mixed') return;
+      state.fontId = val;
+      for (var i = 0; i < state.lines.length; i++) {
+        state.lines[i].fontId = val;
+        syncLineCardValues(i);
+      }
+      ensureFontLoaded(val);
       renderAll();
     });
 
@@ -1410,7 +2260,7 @@
     });
 
     els.resetTextTransformsBtn.addEventListener('click', function () {
-      for (var t = 0; t < 3; t++) {
+      for (var t = 0; t < state.lines.length; t++) {
         state.lines[t].offsetX = 0;
         state.lines[t].offsetY = 0;
         state.lines[t].rotation = 0;
@@ -1419,31 +2269,87 @@
       renderAll();
     });
 
-    for (var i = 0; i < 3; i++) {
-      (function (idx) {
-        els.lineText[idx].addEventListener('input', function () {
-          state.lines[idx].text = els.lineText[idx].value;
+    els.addLineBtn.addEventListener('click', function () {
+      addLine();
+    });
+
+    els.linesStack.addEventListener('input', function (ev) {
+      var t = ev.target;
+      if (t.hasAttribute('data-line-text')) {
+        var idx = Number(t.getAttribute('data-line-text'));
+        if (state.lines[idx]) {
+          state.lines[idx].text = t.value;
           renderAll();
-        });
-        els.lineSize[idx].addEventListener('input', function () {
-          var val = Number(els.lineSize[idx].value);
-          state.lines[idx].size = val;
-          els.lineSizeVal[idx].textContent = val + 'px';
-          renderAll();
-        });
-        els.lineRotate[idx].addEventListener('input', function () {
-          var deg = Number(els.lineRotate[idx].value);
-          state.lines[idx].rotation = deg;
-          els.lineRotateVal[idx].textContent = deg + '°';
+        }
+      } else if (t.hasAttribute('data-line-size')) {
+        var sIdx = Number(t.getAttribute('data-line-size'));
+        if (state.lines[sIdx]) {
+          var val = Number(t.value);
+          state.lines[sIdx].size = val;
+          var sizeVal = els.linesStack.querySelector('[data-line-size-val="' + sIdx + '"]');
+          if (sizeVal) sizeVal.textContent = val + 'px';
           syncSelectionUI();
           renderAll();
-        });
-        els.lineColor[idx].addEventListener('input', function () {
-          state.lines[idx].color = els.lineColor[idx].value;
+        }
+      } else if (t.hasAttribute('data-line-rotate')) {
+        var rIdx = Number(t.getAttribute('data-line-rotate'));
+        if (state.lines[rIdx]) {
+          var deg = Number(t.value);
+          state.lines[rIdx].rotation = deg;
+          var rotVal = els.linesStack.querySelector('[data-line-rotate-val="' + rIdx + '"]');
+          if (rotVal) rotVal.textContent = deg + '°';
+          syncSelectionUI();
           renderAll();
-        });
-      })(i);
-    }
+        }
+      } else if (t.hasAttribute('data-line-color')) {
+        var cIdx = Number(t.getAttribute('data-line-color'));
+        if (state.lines[cIdx]) {
+          state.lines[cIdx].color = t.value;
+          renderAll();
+        }
+      }
+    });
+
+    els.linesStack.addEventListener('change', function (ev) {
+      var t = ev.target;
+      if (t.hasAttribute('data-line-font')) {
+        var fIdx = Number(t.getAttribute('data-line-font'));
+        if (state.lines[fIdx]) {
+          state.lines[fIdx].fontId = t.value;
+          syncGlobalFontSelect();
+          ensureFontLoaded(t.value);
+          renderAll();
+        }
+      }
+    });
+
+    els.linesStack.addEventListener('keydown', function (ev) {
+      var t = ev.target;
+      if (ev.key === 'Enter' && t.hasAttribute('data-line-text')) {
+        ev.preventDefault();
+        if (state.lines.length >= MAX_LINES) return;
+        var idx = Number(t.getAttribute('data-line-text'));
+        if (!state.lines[idx]) return;
+        var start = typeof t.selectionStart === 'number' ? t.selectionStart : t.value.length;
+        var end = typeof t.selectionEnd === 'number' ? t.selectionEnd : start;
+        var leftText = t.value.slice(0, start).replace(/\s+$/, '');
+        var rightText = t.value.slice(end).replace(/^\s+/, '');
+        state.lines[idx].text = leftText;
+        addLine(idx, rightText);
+      }
+    });
+
+    els.linesStack.addEventListener('focusin', function (ev) {
+      var card = ev.target.closest('[data-line-card]');
+      if (!card) return;
+      var idx = Number(card.getAttribute('data-line-card'));
+      if (!state.lines[idx]) return;
+      if (!uiState.selection || uiState.selection.type !== 'text' || uiState.selection.index !== idx) {
+        uiState.selection = { type: 'text', index: idx };
+        syncSelectionUI();
+        renderAll();
+      }
+    });
 
     // Background controls
     els.bgStyle.addEventListener('change', function () {
@@ -1487,74 +2393,81 @@
     bindDropzone(els.overlayDropzone, els.overlayFileInput, handleOverlayFile);
     bindDropzone(els.testDropzone, els.testFileInput, handleTestFile);
 
-    els.bgFit.addEventListener('change', function () {
-      state.bgFit = els.bgFit.value;
-      renderAll();
-    });
-    els.bgZoom.addEventListener('input', function () {
-      state.bgZoom = Number(els.bgZoom.value);
-      els.bgZoomVal.textContent = Math.round(state.bgZoom * 100) + '%';
-      renderAll();
-    });
-    els.bgOffsetX.addEventListener('input', function () {
-      state.bgOffsetX = Number(els.bgOffsetX.value);
-      els.bgOffsetXVal.textContent = state.bgOffsetX + ' px';
-      renderAll();
-    });
-    els.bgOffsetY.addEventListener('input', function () {
-      state.bgOffsetY = Number(els.bgOffsetY.value);
-      els.bgOffsetYVal.textContent = state.bgOffsetY + ' px';
-      renderAll();
-    });
+    function bindImageResizeControls(prefix) {
+      els[prefix + 'Fit'].addEventListener('change', function () {
+        state[prefix + 'Fit'] = els[prefix + 'Fit'].value;
+        renderAll();
+      });
+      els[prefix + 'Zoom'].addEventListener('input', function () {
+        var z = Number(els[prefix + 'Zoom'].value);
+        state[prefix + 'Zoom'] = z;
+        state[prefix + 'ScaleX'] = z;
+        state[prefix + 'ScaleY'] = z;
+        els[prefix + 'ZoomVal'].textContent = Math.round(z * 100) + '%';
+        renderAll();
+      });
+      els[prefix + 'UnlockAspect'].addEventListener('change', function () {
+        var unlocked = els[prefix + 'UnlockAspect'].checked;
+        state[prefix + 'UnlockAspect'] = unlocked;
+        if (unlocked) {
+          state[prefix + 'ScaleX'] = state[prefix + 'Zoom'];
+          state[prefix + 'ScaleY'] = state[prefix + 'Zoom'];
+        } else {
+          state[prefix + 'Zoom'] = state[prefix + 'ScaleX'];
+        }
+        syncControlsFromState();
+        renderAll();
+      });
+      els[prefix + 'ScaleX'].addEventListener('input', function () {
+        var sx = Number(els[prefix + 'ScaleX'].value);
+        state[prefix + 'ScaleX'] = sx;
+        els[prefix + 'ScaleXVal'].textContent = Math.round(sx * 100) + '%';
+        renderAll();
+      });
+      els[prefix + 'ScaleY'].addEventListener('input', function () {
+        var sy = Number(els[prefix + 'ScaleY'].value);
+        state[prefix + 'ScaleY'] = sy;
+        els[prefix + 'ScaleYVal'].textContent = Math.round(sy * 100) + '%';
+        renderAll();
+      });
+      els[prefix + 'OffsetX'].addEventListener('input', function () {
+        state[prefix + 'OffsetX'] = Number(els[prefix + 'OffsetX'].value);
+        els[prefix + 'OffsetXVal'].textContent = state[prefix + 'OffsetX'] + ' px';
+        renderAll();
+      });
+      els[prefix + 'OffsetY'].addEventListener('input', function () {
+        state[prefix + 'OffsetY'] = Number(els[prefix + 'OffsetY'].value);
+        els[prefix + 'OffsetYVal'].textContent = state[prefix + 'OffsetY'] + ' px';
+        renderAll();
+      });
+      els[prefix + 'CenterBtn'].addEventListener('click', function () {
+        state[prefix + 'Zoom'] = 1;
+        state[prefix + 'UnlockAspect'] = false;
+        state[prefix + 'ScaleX'] = 1;
+        state[prefix + 'ScaleY'] = 1;
+        state[prefix + 'OffsetX'] = 0;
+        state[prefix + 'OffsetY'] = 0;
+        syncControlsFromState();
+        renderAll();
+      });
+      els[prefix + 'RemoveBtn'].addEventListener('click', function () {
+        state[prefix + 'Image'] = null;
+        syncControlsFromState();
+        renderAll();
+      });
+    }
+
+    bindImageResizeControls('bg');
+    bindImageResizeControls('test');
+
     els.bgScrim.addEventListener('input', function () {
       var pct = Number(els.bgScrim.value);
       state.bgScrim = pct / 100;
       els.bgScrimVal.textContent = pct + '%';
       renderAll();
     });
-    els.bgCenterBtn.addEventListener('click', function () {
-      state.bgZoom = 1;
-      state.bgOffsetX = 0;
-      state.bgOffsetY = 0;
-      syncControlsFromState();
-      renderAll();
-    });
-    els.bgRemoveBtn.addEventListener('click', function () {
-      state.bgImage = null;
-      syncControlsFromState();
-      renderAll();
-    });
-
-    // Test mode controls
-    els.testFit.addEventListener('change', function () {
-      state.testFit = els.testFit.value;
-      renderAll();
-    });
-    els.testZoom.addEventListener('input', function () {
-      state.testZoom = Number(els.testZoom.value);
-      els.testZoomVal.textContent = Math.round(state.testZoom * 100) + '%';
-      renderAll();
-    });
-    els.testOffsetX.addEventListener('input', function () {
-      state.testOffsetX = Number(els.testOffsetX.value);
-      els.testOffsetXVal.textContent = state.testOffsetX + ' px';
-      renderAll();
-    });
-    els.testOffsetY.addEventListener('input', function () {
-      state.testOffsetY = Number(els.testOffsetY.value);
-      els.testOffsetYVal.textContent = state.testOffsetY + ' px';
-      renderAll();
-    });
-    els.testCenterBtn.addEventListener('click', function () {
-      state.testZoom = 1;
-      state.testOffsetX = 0;
-      state.testOffsetY = 0;
-      syncControlsFromState();
-      renderAll();
-    });
-    els.testRemoveBtn.addEventListener('click', function () {
-      state.testImage = null;
-      syncControlsFromState();
+    els.testBgColor.addEventListener('input', function () {
+      state.testBgColor = els.testBgColor.value;
       renderAll();
     });
 
@@ -1576,22 +2489,38 @@
     els.ovX.addEventListener('input', function () {
       var sel = getSelectedOverlay();
       if (!sel) return;
-      sel.x = Number(els.ovX.value);
-      els.ovXVal.textContent = String(sel.x);
+      var val = Number(els.ovX.value);
+      if (sel.kind === 'qr') {
+        var totalPx = sel._drawW || (sel.qrModules + sel.qrQuietZone * 2) * sel.qrScale;
+        sel.x = clampQrCenter(val, sel.y, totalPx).x;
+      } else {
+        sel.x = val;
+      }
+      els.ovXVal.textContent = String(Math.round(sel.x));
       renderAll();
     });
     els.ovY.addEventListener('input', function () {
       var sel = getSelectedOverlay();
       if (!sel) return;
-      sel.y = Number(els.ovY.value);
-      els.ovYVal.textContent = String(sel.y);
+      var val = Number(els.ovY.value);
+      if (sel.kind === 'qr') {
+        var totalPx = sel._drawW || (sel.qrModules + sel.qrQuietZone * 2) * sel.qrScale;
+        sel.y = clampQrCenter(sel.x, val, totalPx).y;
+      } else {
+        sel.y = val;
+      }
+      els.ovYVal.textContent = String(Math.round(sel.y));
       renderAll();
     });
     els.ovCenterBtn.addEventListener('click', function () {
       var sel = getSelectedOverlay();
       if (!sel) return;
-      sel.x = 128;
-      sel.y = 48;
+      if (sel.kind === 'qr') {
+        placeQrWithTextShift(sel, 'center', false);
+      } else {
+        sel.x = 128;
+        sel.y = 48;
+      }
       syncSelectionUI();
       renderAll();
     });
@@ -1606,6 +2535,70 @@
     els.ovDeleteBtn.addEventListener('click', function () {
       var sel = getSelectedOverlay();
       if (sel) removeOverlay(sel.id);
+    });
+
+    // Tab 5: Pixel-Locked QR Code controls
+    els.qrUrl.addEventListener('input', function () {
+      state.qrDraft.url = els.qrUrl.value;
+      if (getQrOverlay()) upsertQrOverlay(false, null, false);
+      else syncQrPanelUI();
+    });
+    els.qrClearBtn.addEventListener('click', function () {
+      state.qrDraft.url = '';
+      els.qrUrl.value = '';
+      syncQrPanelUI();
+      els.qrUrl.focus();
+    });
+    els.qrUppercase.addEventListener('change', function () {
+      state.qrDraft.uppercase = els.qrUppercase.checked;
+      if (getQrOverlay()) upsertQrOverlay(false, null, false);
+      else syncQrPanelUI();
+    });
+    els.qrEcc.addEventListener('change', function () {
+      state.qrDraft.ecc = els.qrEcc.value;
+      if (getQrOverlay()) upsertQrOverlay(false, null, false);
+      else syncQrPanelUI();
+    });
+    els.qrAddBtn.addEventListener('click', function () {
+      var existing = getQrOverlay();
+      upsertQrOverlay(true, existing ? null : 'right', !existing);
+    });
+    els.qrRemoveBtn.addEventListener('click', function () {
+      var existing = getQrOverlay();
+      if (existing) removeOverlay(existing.id);
+    });
+    els.qrPlaceLeftBtn.addEventListener('click', function () {
+      var existing = getQrOverlay();
+      if (existing) {
+        placeQrWithTextShift(existing, 'left', true);
+        uiState.selection = { type: 'overlay', id: existing.id };
+        syncSelectionUI();
+        renderAll();
+      } else {
+        upsertQrOverlay(true, 'left', true);
+      }
+    });
+    els.qrPlaceRightBtn.addEventListener('click', function () {
+      var existing = getQrOverlay();
+      if (existing) {
+        placeQrWithTextShift(existing, 'right', true);
+        uiState.selection = { type: 'overlay', id: existing.id };
+        syncSelectionUI();
+        renderAll();
+      } else {
+        upsertQrOverlay(true, 'right', true);
+      }
+    });
+    els.qrPlaceCenterBtn.addEventListener('click', function () {
+      var existing = getQrOverlay();
+      if (existing) {
+        placeQrWithTextShift(existing, 'center', false);
+        uiState.selection = { type: 'overlay', id: existing.id };
+        syncSelectionUI();
+        renderAll();
+      } else {
+        upsertQrOverlay(true, 'center', false);
+      }
     });
 
     // Quality & Export
@@ -1668,9 +2661,11 @@
     els.quickSizeWrap = $('quick-size-wrap');
     els.quickSize = $('quick-size');
     els.quickSizeVal = $('quick-size-val');
+    els.quickRotateWrap = $('quick-rotate-wrap');
     els.quickRotate = $('quick-rotate');
     els.quickRotateVal = $('quick-rotate-val');
     els.quickRotateReset = $('quick-rotate-reset');
+    els.quickEditQrBtn = $('quick-edit-qr-btn');
     els.quickCenterBtn = $('quick-center-btn');
     els.quickLayerWrap = $('quick-layer-wrap');
     els.quickFrontBtn = $('quick-front-btn');
@@ -1682,13 +2677,9 @@
     els.autoFit = $('auto-fit');
     els.textOutline = $('text-outline');
     els.resetTextTransformsBtn = $('reset-text-transforms-btn');
-    els.lineCard = [$('line-card-0'), $('line-card-1'), $('line-card-2')];
-    els.lineText = [$('line-text-0'), $('line-text-1'), $('line-text-2')];
-    els.lineSize = [$('line-size-0'), $('line-size-1'), $('line-size-2')];
-    els.lineSizeVal = [$('line-size-val-0'), $('line-size-val-1'), $('line-size-val-2')];
-    els.lineRotate = [$('line-rotate-0'), $('line-rotate-1'), $('line-rotate-2')];
-    els.lineRotateVal = [$('line-rotate-val-0'), $('line-rotate-val-1'), $('line-rotate-val-2')];
-    els.lineColor = [$('line-color-0'), $('line-color-1'), $('line-color-2')];
+    els.addLineBtn = $('add-line-btn');
+    els.lineCountHint = $('line-count-hint');
+    els.linesStack = $('lines-stack');
 
     els.bgStyle = $('bg-style');
     els.bgGradDir = $('bg-grad-dir');
@@ -1706,9 +2697,17 @@
     els.bgDropzone = $('bg-dropzone');
     els.bgFileInput = $('bg-file-input');
     els.bgImageControls = $('bg-image-controls');
+    els.bgImageMeta = $('bg-image-meta');
     els.bgFit = $('bg-fit');
+    els.bgZoomWrap = $('bg-zoom-wrap');
     els.bgZoom = $('bg-zoom');
     els.bgZoomVal = $('bg-zoom-val');
+    els.bgUnlockAspect = $('bg-unlock-aspect');
+    els.bgScaleXyWrap = $('bg-scale-xy-wrap');
+    els.bgScaleX = $('bg-scale-x');
+    els.bgScaleXVal = $('bg-scale-x-val');
+    els.bgScaleY = $('bg-scale-y');
+    els.bgScaleYVal = $('bg-scale-y-val');
     els.bgOffsetX = $('bg-offset-x');
     els.bgOffsetXVal = $('bg-offset-x-val');
     els.bgOffsetY = $('bg-offset-y');
@@ -1723,8 +2722,16 @@
     els.testImageControls = $('test-image-controls');
     els.testImageMeta = $('test-image-meta');
     els.testFit = $('test-fit');
+    els.testBgColor = $('test-bg-color');
+    els.testZoomWrap = $('test-zoom-wrap');
     els.testZoom = $('test-zoom');
     els.testZoomVal = $('test-zoom-val');
+    els.testUnlockAspect = $('test-unlock-aspect');
+    els.testScaleXyWrap = $('test-scale-xy-wrap');
+    els.testScaleX = $('test-scale-x');
+    els.testScaleXVal = $('test-scale-x-val');
+    els.testScaleY = $('test-scale-y');
+    els.testScaleYVal = $('test-scale-y-val');
     els.testOffsetX = $('test-offset-x');
     els.testOffsetXVal = $('test-offset-x-val');
     els.testOffsetY = $('test-offset-y');
@@ -1737,6 +2744,8 @@
     els.builtinStickersGrid = $('builtin-stickers-grid');
     els.activeOverlaysList = $('active-overlays-list');
     els.selectedOverlayControls = $('selected-overlay-controls');
+    els.ovQrLockNote = $('ov-qr-lock-note');
+    els.ovTransformRow = $('ov-transform-row');
     els.ovSize = $('ov-size');
     els.ovSizeVal = $('ov-size-val');
     els.ovRotate = $('ov-rotate');
@@ -1749,6 +2758,20 @@
     els.ovFrontBtn = $('ov-front-btn');
     els.ovBackBtn = $('ov-back-btn');
     els.ovDeleteBtn = $('ov-delete-btn');
+
+    els.qrUrl = $('qr-url');
+    els.qrClearBtn = $('qr-clear-btn');
+    els.qrUppercase = $('qr-uppercase');
+    els.qrEcc = $('qr-ecc');
+    els.qrAddBtn = $('qr-add-btn');
+    els.qrRemoveBtn = $('qr-remove-btn');
+    els.qrStatusPill = $('qr-status-pill');
+    els.qrVersionMeta = $('qr-version-meta');
+    els.qrDimensionsText = $('qr-dimensions-text');
+    els.qrPayloadPreview = $('qr-payload-preview');
+    els.qrPlaceLeftBtn = $('qr-place-left-btn');
+    els.qrPlaceRightBtn = $('qr-place-right-btn');
+    els.qrPlaceCenterBtn = $('qr-place-center-btn');
   }
 
   function init() {

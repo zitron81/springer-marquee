@@ -10,34 +10,138 @@
 
   var FONTS = [
     {
-      id: 'montserrat',
-      label: 'Montserrat (Clean Bold)',
-      css: '"Montserrat", "Arial Black", "Segoe UI", sans-serif',
+      id: 'baloo',
+      group: 'Cute & Playful',
+      label: 'Baloo 2 Chubby (Bubble Bold)',
+      css: '"Baloo 2", "Fredoka", "Arial Rounded MT Bold", sans-serif',
       weight: '800'
     },
     {
+      id: 'dynapuff',
+      group: 'Cute & Playful',
+      label: 'DynaPuff (Puffy Bouncy)',
+      css: '"DynaPuff", "Fredoka", "Comic Sans MS", cursive',
+      weight: '700'
+    },
+    {
+      id: 'chewy',
+      group: 'Cute & Playful',
+      label: 'Chewy (Chunky Marker)',
+      css: '"Chewy", "Comic Sans MS", cursive',
+      weight: '400'
+    },
+    {
+      id: 'luckiest',
+      group: 'Cute & Playful',
+      label: 'Luckiest Guy (Cartoon Pop)',
+      css: '"Luckiest Guy", Impact, cursive',
+      weight: '400'
+    },
+    {
+      id: 'bubblegum',
+      group: 'Cute & Playful',
+      label: 'Bubblegum Sans (Cute Rounded)',
+      css: '"Bubblegum Sans", "Comic Sans MS", cursive',
+      weight: '400'
+    },
+    {
       id: 'fredoka',
-      label: 'Fredoka (Friendly Rounded)',
+      group: 'Cute & Playful',
+      label: 'Fredoka Bold (Friendly Rounded)',
       css: '"Fredoka", "Trebuchet MS", "Arial Rounded MT Bold", sans-serif',
       weight: '700'
     },
     {
+      id: 'patrick-hand',
+      group: 'Cute & Playful',
+      slim: true,
+      label: 'Patrick Hand (Cute Slim Marker)',
+      css: '"Patrick Hand", "Comic Sans MS", cursive',
+      weight: '400'
+    },
+    {
+      id: 'fredoka-slim',
+      group: 'Cute & Playful',
+      slim: true,
+      label: 'Fredoka Regular (Slim Rounded)',
+      css: '"Fredoka", "Trebuchet MS", Arial, sans-serif',
+      weight: '400'
+    },
+    {
+      id: 'montserrat',
+      group: 'Bold & Impact',
+      label: 'Montserrat Bold (Clean)',
+      css: '"Montserrat", "Arial Black", "Segoe UI", sans-serif',
+      weight: '800'
+    },
+    {
       id: 'anton',
+      group: 'Bold & Impact',
       label: 'Anton (Tall Impact)',
       css: '"Anton", Impact, "Arial Black", sans-serif',
       weight: '400'
     },
     {
       id: 'oswald',
-      label: 'Oswald (Compact Condensed)',
+      group: 'Bold & Impact',
+      label: 'Oswald Bold (Condensed)',
       css: '"Oswald", "Arial Narrow", Impact, sans-serif',
       weight: '700'
     },
     {
       id: 'system-bold',
+      group: 'Bold & Impact',
       label: 'Classic Block (Offline Safe)',
       css: '"Arial Black", Impact, system-ui, sans-serif',
       weight: '900'
+    },
+    {
+      id: 'oswald-slim',
+      group: 'Slim & Clean',
+      slim: true,
+      label: 'Oswald Slim (Narrow)',
+      css: '"Oswald", "Arial Narrow", Arial, sans-serif',
+      weight: '400'
+    },
+    {
+      id: 'barlow-slim',
+      group: 'Slim & Clean',
+      slim: true,
+      label: 'Barlow Condensed (Slim Modern)',
+      css: '"Barlow Condensed", "Arial Narrow", Arial, sans-serif',
+      weight: '500'
+    },
+    {
+      id: 'roboto-slim',
+      group: 'Slim & Clean',
+      slim: true,
+      label: 'Roboto Condensed (Slim Sans)',
+      css: '"Roboto Condensed", "Arial Narrow", Arial, sans-serif',
+      weight: '400'
+    },
+    {
+      id: 'montserrat-med',
+      group: 'Slim & Clean',
+      slim: true,
+      label: 'Montserrat Medium (Clean)',
+      css: '"Montserrat", "Segoe UI", Arial, sans-serif',
+      weight: '500'
+    },
+    {
+      id: 'space-mono',
+      group: 'Slim & Clean',
+      slim: true,
+      label: 'Space Mono (Slim Dates/URLs)',
+      css: '"Space Mono", Consolas, monospace',
+      weight: '400'
+    },
+    {
+      id: 'system-slim',
+      group: 'Slim & Clean',
+      slim: true,
+      label: 'Clean Sans Slim (Offline Safe)',
+      css: '"Segoe UI", "Helvetica Neue", Arial, sans-serif',
+      weight: '400'
     }
   ];
 
@@ -339,6 +443,38 @@
           { text: '', size: 14, color: '#ffffff', offsetX: 0, offsetY: 0, rotation: 0 }
         ],
         starterSticker: null
+      }
+    },
+    {
+      id: 'qr-walkup',
+      name: 'QR Code + Short Link',
+      tagline: 'Pixel-locked 3×3 QR + walk-up text',
+      previewColors: ['#0b4f26', '#ffffff', '#ffd60a'],
+      config: {
+        bgStyle: 'solid',
+        bgColor: '#0b4f26',
+        bgColor2: '#052e16',
+        bgGradDir: 'horizontal',
+        motif: 'none',
+        motifColor: '#ffd60a',
+        fontId: 'montserrat',
+        align: 'center',
+        textOutline: false,
+        autoFit: true,
+        lines: [
+          { text: 'SCAN AT PICKUP', size: 14, color: '#ffd60a', offsetX: -46, offsetY: 0, rotation: 0 },
+          { text: 'PTA SIGN-UP', size: 21, color: '#ffffff', offsetX: -46, offsetY: 0, rotation: 0 },
+          { text: 'SPRINGERPTA.ORG', size: 14, color: '#ffd60a', offsetX: -46, offsetY: 0, rotation: 0 }
+        ],
+        starterSticker: null,
+        starterQr: {
+          url: 'https://springerpta.org',
+          uppercase: true,
+          scaleMode: 'auto',
+          quietZoneMode: 'auto',
+          ecc: 'L',
+          snap: 'right'
+        }
       }
     }
   ];
