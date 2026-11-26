@@ -370,7 +370,7 @@
                 <label for="bg-style">Fill Style</label>
                 <select id="bg-style">
                   <option value="solid">Solid Color</option>
-                  <option value="gradient">Two-Color Gradient</option>
+                  <option value="gradient">2-Color Gradient</option>
                 </select>
               </div>
               <div class="field" id="bg-grad-dir-wrap" hidden>
@@ -408,8 +408,11 @@
                 </div>
               </div>
               <div class="field" id="motif-color-wrap" hidden>
-                <label for="motif-color">Accent Color</label>
-                <input type="color" id="motif-color" value="#ffd60a">
+                <label for="motif-color">Border / Accent Color</label>
+                <div class="color-input-combo">
+                  <input type="color" id="motif-color" value="#ffd60a">
+                  <div id="motif-swatches" class="swatch-strip" aria-label="Quick accent colors"></div>
+                </div>
               </div>
             </div>
           </div>

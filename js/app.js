@@ -650,6 +650,7 @@
     }
     els.bgSwatches.innerHTML = buildSwatchButtonsHtml('bg', '0');
     els.bgSwatches2.innerHTML = buildSwatchButtonsHtml('bg2', '0');
+    els.motifSwatches.innerHTML = buildSwatchButtonsHtml('motif', '0');
 
     // Built-in stickers
     var stHtml = '';
@@ -1269,6 +1270,9 @@
         } else if (targetType === 'bg2') {
           state.bgColor2 = colorHex;
           els.bgColor2.value = colorHex;
+        } else if (targetType === 'motif') {
+          state.motifColor = colorHex;
+          els.motifColor.value = colorHex;
         }
         renderAll();
         return;
@@ -1696,6 +1700,7 @@
     els.bgSwatches2 = $('bg-swatches-2');
     els.motifSelect = $('motif-select');
     els.motifColor = $('motif-color');
+    els.motifSwatches = $('motif-swatches');
     els.motifColorWrap = $('motif-color-wrap');
 
     els.bgDropzone = $('bg-dropzone');
