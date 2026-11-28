@@ -13,6 +13,7 @@
   <script src="js/qrcode.js" defer></script>
   <script src="js/analyzer.js" defer></script>
   <script src="js/renderer.js" defer></script>
+  <script src="js/project.js" defer></script>
   <script src="js/app.js" defer></script>
 </head>
 <body>
@@ -56,7 +57,7 @@
     </section>
 
     <!-- HERO PREVIEW CARD -->
-    <section class="card preview-card" aria-label="Live marquee preview and export">
+    <section id="preview-stage-card" class="card preview-card preview-stage-card" aria-label="Live marquee preview">
       <div class="preview-toolbar">
         <div class="segmented" role="group" aria-label="Preview display mode">
           <button type="button" class="seg-btn is-active" data-preview-mode="led" aria-pressed="true">
@@ -69,9 +70,15 @@
         <span id="canvas-interaction-hint" class="preview-hint">
           Click any text or sticker to drag or rotate
         </span>
-        <button type="button" id="reset-btn" class="btn btn-ghost btn-sm" title="Reset to starter Springer Stingers slide">
-          Reset Slide
-        </button>
+        <div class="preview-toolbar-actions">
+          <label id="sticky-preview-label" class="checkbox-pill checkbox-pill-sm sticky-preview-toggle" title="Keep the sign preview pinned at the top while scrolling">
+            <input type="checkbox" id="sticky-preview-toggle">
+            <span>Stick preview on scroll</span>
+          </label>
+          <button type="button" id="reset-btn" class="btn btn-ghost btn-sm" title="Reset to starter Springer Stingers slide">
+            Reset Slide
+          </button>
+        </div>
       </div>
 
       <div id="marquee-bezel" class="marquee-bezel">
@@ -123,8 +130,10 @@
           <button type="button" id="quick-deselect-btn" class="btn btn-ghost btn-sm">Done</button>
         </div>
       </div>
+    </section>
 
-      <!-- COMPACT UTILITY STRIP: 1:1 SIZE + READABILITY CHECKS + EXPORT -->
+    <!-- COMPACT UTILITY STRIP: 1:1 SIZE + READABILITY CHECKS + EXPORT -->
+    <section class="card preview-utility-card" aria-label="Actual size preview, readability checks, and export">
       <div class="preview-utility-bar">
         <div class="actual-size-box">
           <div class="actual-canvas-frame">
@@ -157,6 +166,21 @@
               <input type="range" id="jpg-quality" min="85" max="100" step="1" value="95">
             </div>
           </details>
+          <div id="project-file-box" class="project-file-box">
+            <div class="project-file-actions">
+              <button type="button" id="save-project-btn" class="btn btn-outline btn-sm" title="Download an editable .marquee.json file to your computer">
+                Save Editable File
+              </button>
+              <button type="button" id="open-project-btn" class="btn btn-outline btn-sm" title="Open a saved .marquee.json file to continue editing">
+                Open Saved File
+              </button>
+              <input type="file" id="open-project-input" accept=".json,.marquee.json,application/json" class="sr-only">
+            </div>
+            <p class="project-file-hint">
+              Saves text, stickers &amp; QR on your computer (100% local) so you can edit later.
+            </p>
+            <p id="project-status" class="project-status" role="status" aria-live="polite" hidden></p>
+          </div>
         </div>
       </div>
     </section>

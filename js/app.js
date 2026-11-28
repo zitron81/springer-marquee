@@ -8,6 +8,7 @@
   var R = global.MarqueeRenderer;
   var A = global.MarqueeAnalyzer;
   var QR = global.MarqueeQR;
+  var Proj = global.MarqueeProject;
   var MAX_LINES = 6;
 
   var sourceCanvas = document.createElement('canvas');
@@ -67,6 +68,8 @@
     selection: null, // { type: 'overlay', id } | { type: 'text', index } | null
     overlayCounter: 1,
     sizeTimer: null,
+    projectStatusTimer: null,
+    stickyPreview: false,
     drag: null,
     lastMetrics: null
   };
@@ -131,6 +134,23 @@
         reject(new Error('Could not read the selected file.'));
       };
       reader.readAsDataURL(file);
+    });
+  }
+
+  function readFileAsText(file) {
+    return new Promise(function (resolve, reject) {
+      if (!file) {
+        reject(new Error('Please choose a saved project file (.marquee.json).'));
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function (ev) {
+        resolve(ev.target.result);
+      };
+      reader.onerror = function () {
+        reject(new Error('Could not read the selected project file.'));
+      };
+      reader.readAsText(file, 'utf-8');
     });
   }
 
@@ -331,39 +351,246 @@
     return null;
   }
 
-  function buildFilename() {
-    if (state.appMode === 'test') {
-      if (state.testImage && state.testImage.name) {
-        var base = state.testImage.name
-          .replace(/\.[^.]+$/, '')
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-+|-+$/g, '');
-        return (base || 'tested-slide') + '-256x96.jpg';
-      }
-      return 'tested-slide-256x96.jpg';
-    }
+  function slugifyPart(str) {
+    return String(str || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
 
+  function buildBaseSlug() {
     var parts = [];
     for (var i = 0; i < state.lines.length; i++) {
       var t = (state.lines[i].text || '').trim();
       if (t) parts.push(t);
     }
-    var raw = parts
-      .join(' ')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+    var raw = slugifyPart(parts.join(' '));
     if (!raw && state.bgImage && state.bgImage.name) {
-      raw = state.bgImage.name
-        .replace(/\.[^.]+$/, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '');
+      raw = slugifyPart(state.bgImage.name.replace(/\.[^.]+$/, ''));
+    }
+    if (!raw) {
+      for (var j = 0; j < state.overlays.length; j++) {
+        if (state.overlays[j].kind !== 'qr' && state.overlays[j].name) {
+          raw = slugifyPart(state.overlays[j].name);
+          if (raw) break;
+        }
+      }
     }
     if (!raw) raw = 'springer-marquee';
     if (raw.length > 40) raw = raw.slice(0, 40).replace(/-+$/g, '');
-    return raw + '-256x96.jpg';
+    return raw || 'springer-marquee';
+  }
+
+  function buildFilename() {
+    if (state.appMode === 'test') {
+      if (state.testImage && state.testImage.name) {
+        var base = slugifyPart(state.testImage.name.replace(/\.[^.]+$/, ''));
+        return (base || 'tested-slide') + '-256x96.jpg';
+      }
+      return 'tested-slide-256x96.jpg';
+    }
+    return buildBaseSlug() + '-256x96.jpg';
+  }
+
+  function buildProjectFilename() {
+    var ext = Proj ? Proj.FILE_EXTENSION : '.marquee.json';
+    return buildBaseSlug() + ext;
+  }
+
+  function showProjectStatus(message, isError) {
+    if (!els.projectStatus) return;
+    if (uiState.projectStatusTimer) {
+      clearTimeout(uiState.projectStatusTimer);
+      uiState.projectStatusTimer = null;
+    }
+    els.projectStatus.textContent = message;
+    els.projectStatus.classList.toggle('is-error', Boolean(isError));
+    els.projectStatus.classList.toggle('is-ok', !isError);
+    els.projectStatus.hidden = false;
+    if (!isError) {
+      uiState.projectStatusTimer = setTimeout(function () {
+        if (els.projectStatus) els.projectStatus.hidden = true;
+        uiState.projectStatusTimer = null;
+      }, 6000);
+    }
+  }
+
+  function triggerBlobDownload(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 1500);
+  }
+
+  function saveProjectFile() {
+    if (!Proj) {
+      showProjectStatus('Project save module is unavailable.', true);
+      return;
+    }
+    try {
+      var payload = Proj.serializeProject(state);
+      var json = JSON.stringify(payload, null, 2);
+      var blob = new Blob([json], { type: 'application/json' });
+      var filename = buildProjectFilename();
+      triggerBlobDownload(blob, filename);
+      showProjectStatus('Saved ' + filename + ' to your computer.', false);
+    } catch (err) {
+      showProjectStatus((err && err.message) || 'Could not save editable file.', true);
+    }
+  }
+
+  function applyLoadedProject(slide, filename) {
+    var bgPromise = slide.bgImage
+      ? loadImageFromSrc(slide.bgImage.dataUrl).then(function (img) {
+          return { name: slide.bgImage.name, img: img, dataUrl: slide.bgImage.dataUrl };
+        })
+      : Promise.resolve(null);
+
+    var overlayPromises = slide.overlays.map(function (ov) {
+      if (ov.kind === 'qr') {
+        return new Promise(function (resolve, reject) {
+          if (!QR) {
+            reject(new Error('QR encoder unavailable.'));
+            return;
+          }
+          var qrText = (ov.qrUrl || slide.qrDraft.url || '').trim();
+          if (!qrText) {
+            reject(new Error('Saved QR code has an empty link.'));
+            return;
+          }
+          var enc = QR.encode(qrText, ov.qrEcc);
+          if (enc.error) {
+            reject(new Error('Saved QR code could not be generated: ' + enc.error));
+            return;
+          }
+          var chosenScale = ov.qrScale;
+          var chosenQz = ov.qrQuietZone;
+          if (!chosenScale || !chosenQz || (enc.size + 2 * chosenQz) * chosenScale > P.HEIGHT) {
+            var fallbackLayout = QR.computeLayout(
+              enc.size,
+              slide.qrDraft.scaleMode,
+              slide.qrDraft.quietZoneMode,
+              P.HEIGHT
+            );
+            chosenScale = fallbackLayout.scale;
+            chosenQz = fallbackLayout.quietZone;
+          }
+          var totalPx = (enc.size + chosenQz * 2) * chosenScale;
+          var pos = clampQrCenter(ov.x, ov.y, totalPx);
+          var thumbSrc = QR.toThumbDataUrl(enc.matrix, chosenQz);
+          resolve({
+            id: null,
+            kind: 'qr',
+            name: 'QR (' + chosenScale + '×' + chosenScale + ' px/sq)',
+            src: thumbSrc,
+            img: null,
+            x: pos.x,
+            y: pos.y,
+            size: totalPx,
+            rotation: 0,
+            layer: ov.layer === 'back' ? 'back' : 'front',
+            qrMatrix: enc.matrix,
+            qrVersion: enc.version,
+            qrModules: enc.size,
+            qrScale: chosenScale,
+            qrQuietZone: chosenQz,
+            qrMode: enc.mode,
+            qrEcc: enc.ecc,
+            qrUrl: qrText
+          });
+        });
+      }
+
+      return loadImageFromSrc(ov.src).then(function (img) {
+        return {
+          id: null,
+          name: ov.name || 'Sticker',
+          src: ov.src,
+          img: img,
+          x: ov.x,
+          y: ov.y,
+          size: ov.size,
+          rotation: ov.rotation || 0,
+          layer: ov.layer === 'back' ? 'back' : 'front'
+        };
+      });
+    });
+
+    return Promise.all([bgPromise, Promise.all(overlayPromises)]).then(function (results) {
+      var loadedBg = results[0];
+      var loadedOverlays = results[1];
+
+      for (var i = 0; i < loadedOverlays.length; i++) {
+        loadedOverlays[i].id = 'ov-' + uiState.overlayCounter++;
+      }
+
+      state.appMode = 'create';
+      state.presetId = slide.presetId;
+      state.previewMode = slide.previewMode;
+      state.bgStyle = slide.bgStyle;
+      state.bgColor = slide.bgColor;
+      state.bgColor2 = slide.bgColor2;
+      state.bgGradDir = slide.bgGradDir;
+      state.motif = slide.motif;
+      state.motifColor = slide.motifColor;
+      state.fontId = slide.fontId;
+      state.align = slide.align;
+      state.textOutline = slide.textOutline;
+      state.autoFit = slide.autoFit;
+      state.lines = slide.lines;
+      state.bgImage = loadedBg;
+      state.bgFit = slide.bgFit;
+      state.bgZoom = slide.bgZoom;
+      state.bgUnlockAspect = slide.bgUnlockAspect;
+      state.bgScaleX = slide.bgScaleX;
+      state.bgScaleY = slide.bgScaleY;
+      state.bgOffsetX = slide.bgOffsetX;
+      state.bgOffsetY = slide.bgOffsetY;
+      state.bgScrim = slide.bgScrim;
+      state.overlays = loadedOverlays;
+      state.qrDraft = slide.qrDraft;
+      state.jpgQuality = slide.jpgQuality;
+
+      uiState.selection = null;
+      uiState.drag = null;
+
+      var loadedFonts = {};
+      loadedFonts[state.fontId] = true;
+      ensureFontLoaded(state.fontId);
+      for (var l = 0; l < state.lines.length; l++) {
+        var fid = state.lines[l].fontId || state.fontId;
+        if (!loadedFonts[fid]) {
+          loadedFonts[fid] = true;
+          ensureFontLoaded(fid);
+        }
+      }
+
+      syncControlsFromState();
+      renderAll();
+      showProjectStatus('Opened ' + (filename || 'saved slide') + ' — ready to edit.', false);
+    });
+  }
+
+  function handleProjectFile(file) {
+    if (!file) return;
+    if (!Proj) {
+      showProjectStatus('Project load module is unavailable.', true);
+      return;
+    }
+    readFileAsText(file)
+      .then(function (text) {
+        var slide = Proj.parseProjectJson(text);
+        return applyLoadedProject(slide, file.name);
+      })
+      .catch(function (err) {
+        showProjectStatus((err && err.message) || 'Could not open saved project file.', true);
+      });
   }
 
   function scheduleSizeEstimate() {
@@ -954,6 +1181,7 @@
     els.createModePanel.hidden = !isCreate;
     els.testModePanel.hidden = isCreate;
     els.resetBtn.hidden = !isCreate;
+    if (els.projectFileBox) els.projectFileBox.hidden = !isCreate;
     els.canvasInteractionHint.textContent = isCreate
       ? 'Click any text or sticker to drag or rotate'
       : 'Drop an image onto the sign or drag to pan';
@@ -1141,6 +1369,19 @@
     uiState.drag = null;
     syncControlsFromState();
     renderAll();
+  }
+
+  function setStickyPreview(enabled) {
+    uiState.stickyPreview = Boolean(enabled);
+    if (els.previewStageCard) {
+      els.previewStageCard.classList.toggle('is-sticky', uiState.stickyPreview);
+    }
+    if (els.stickyPreviewLabel) {
+      els.stickyPreviewLabel.classList.toggle('is-active', uiState.stickyPreview);
+    }
+    if (els.stickyPreviewToggle) {
+      els.stickyPreviewToggle.checked = uiState.stickyPreview;
+    }
   }
 
   function addOverlay(name, src, x, y, size, rotation, layer, selectOnAdd) {
@@ -1578,21 +1819,36 @@
   function bindCanvasInteractions() {
     var canvas = els.displayCanvas;
 
-    // Allow dropping an image file directly onto the marquee bezel in Test mode
+    function isJsonDrop(ev) {
+      var dt = ev.dataTransfer;
+      if (!dt) return false;
+      if (dt.files && dt.files[0]) {
+        var f = dt.files[0];
+        return /\.json$/i.test(f.name) || f.type === 'application/json';
+      }
+      return dt.types && Array.prototype.indexOf.call(dt.types, 'Files') !== -1;
+    }
+
+    // Allow dropping an image file in Test mode, or a .marquee.json file in Create mode
     els.marqueeBezel.addEventListener('dragover', function (ev) {
-      if (state.appMode !== 'test') return;
-      ev.preventDefault();
-      els.marqueeBezel.classList.add('is-dragover');
+      if (state.appMode === 'test' || (state.appMode === 'create' && isJsonDrop(ev))) {
+        ev.preventDefault();
+        els.marqueeBezel.classList.add('is-dragover');
+      }
     });
     els.marqueeBezel.addEventListener('dragleave', function () {
       els.marqueeBezel.classList.remove('is-dragover');
     });
     els.marqueeBezel.addEventListener('drop', function (ev) {
-      if (state.appMode !== 'test') return;
-      ev.preventDefault();
       els.marqueeBezel.classList.remove('is-dragover');
-      if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0]) {
-        handleTestFile(ev.dataTransfer.files[0]);
+      var file = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
+      if (!file) return;
+      if (state.appMode === 'test') {
+        ev.preventDefault();
+        handleTestFile(file);
+      } else if (state.appMode === 'create' && (/\.json$/i.test(file.name) || file.type === 'application/json')) {
+        ev.preventDefault();
+        handleProjectFile(file);
       }
     });
 
@@ -2152,6 +2408,12 @@
       applyPreset('springer-stingers', true);
     });
 
+    if (els.stickyPreviewToggle) {
+      els.stickyPreviewToggle.addEventListener('change', function () {
+        setStickyPreview(els.stickyPreviewToggle.checked);
+      });
+    }
+
     // Quick selection bar controls
     els.quickSize.addEventListener('input', function () {
       var sel = getSelectedOverlay();
@@ -2621,21 +2883,27 @@
       R.renderSource(sourceCtx, state);
       R.exportJpgBlob(sourceCanvas, state.jpgQuality)
         .then(function (blob) {
-          var url = URL.createObjectURL(blob);
-          var link = document.createElement('a');
-          link.href = url;
-          link.download = buildFilename();
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          setTimeout(function () {
-            URL.revokeObjectURL(url);
-          }, 1500);
+          triggerBlobDownload(blob, buildFilename());
         })
         .catch(function (err) {
           alert(err.message || 'Could not export JPG file.');
         });
     });
+
+    if (els.saveProjectBtn) {
+      els.saveProjectBtn.addEventListener('click', saveProjectFile);
+    }
+    if (els.openProjectBtn && els.openProjectInput) {
+      els.openProjectBtn.addEventListener('click', function () {
+        els.openProjectInput.click();
+      });
+      els.openProjectInput.addEventListener('change', function () {
+        if (els.openProjectInput.files && els.openProjectInput.files[0]) {
+          handleProjectFile(els.openProjectInput.files[0]);
+        }
+        els.openProjectInput.value = '';
+      });
+    }
 
     bindCanvasInteractions();
   }
@@ -2647,6 +2915,9 @@
     els.createModePanel = $('create-mode-panel');
     els.testModePanel = $('test-mode-panel');
 
+    els.previewStageCard = $('preview-stage-card');
+    els.stickyPreviewToggle = $('sticky-preview-toggle');
+    els.stickyPreviewLabel = $('sticky-preview-label');
     els.marqueeBezel = $('marquee-bezel');
     els.displayCanvas = $('display-canvas');
     els.actualCanvas = $('actual-canvas');
@@ -2658,6 +2929,11 @@
     els.filenamePreview = $('filename-preview');
     els.jpgQuality = $('jpg-quality');
     els.jpgQualityVal = $('jpg-quality-val');
+    els.projectFileBox = $('project-file-box');
+    els.saveProjectBtn = $('save-project-btn');
+    els.openProjectBtn = $('open-project-btn');
+    els.openProjectInput = $('open-project-input');
+    els.projectStatus = $('project-status');
     els.resetBtn = $('reset-btn');
     els.openGuideBtn = $('open-guide-btn');
     els.closeGuideBtn = $('close-guide-btn');
